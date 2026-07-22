@@ -1,0 +1,348 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         HVAC Quotation — English Template
+         Shows standard sale order content (partner info, product lines,
+         totals) followed by the dynamic contract clause section.
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <template id="report_hvac_quotation_en">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="doc">
+                <t t-call="hvac_sales_extension.hvac_contract_layout">
+                    <t t-set="doc" t-value="doc"/>
+
+                    <!-- How many HVAC unit columns are enabled for this order -->
+                    <t t-set="n_units" t-value="int(doc.x_show_btu) + int(doc.x_show_cfm) + int(doc.x_show_kw) + int(doc.x_show_hp)"/>
+                    <t t-set="total_cols" t-value="7 + n_units"/>
+
+                    <style>
+                        .hvac-quotation { font-family: 'Segoe UI', Tahoma, sans-serif; font-size: 10pt; line-height: 1.5; color: #1a1a1a; }
+                        .doc-title { text-align: center; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid #2c3e50; }
+                        .doc-title h2 { font-size: 16pt; font-weight: 700; color: #2c3e50; margin: 0 0 4px 0; letter-spacing: 1px; }
+                        .doc-title .doc-ref { font-size: 10pt; color: #555; }
+                        .info-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+                        .info-table td { padding: 4px 8px; border: 1px solid #bdc3c7; font-size: 9pt; }
+                        .info-table td.lbl { background-color: #ecf0f1; font-weight: 600; width: 20%; color: #2c3e50; }
+                        .info-table td.val { width: 30%; }
+                        .lines-table { width: 100%; border-collapse: collapse; margin: 8px 0 12px 0; font-size: 9pt; }
+                        .lines-table thead th { background-color: #2c3e50; color: #fff; padding: 5px 6px; text-align: center; font-weight: 600; border: 1px solid #2c3e50; }
+                        .lines-table tbody td { padding: 5px 6px; border: 1px solid #bdc3c7; vertical-align: top; }
+                        .lines-table .section-row td { background-color: #d5dce4; font-weight: 700; font-size: 9pt; color: #2c3e50; }
+                        .lines-table .note-row td { font-style: italic; font-size: 8.5pt; color: #555; }
+                        .lines-table .desc-cell { text-align: left; }
+                        .lines-table tfoot td { background-color: #ecf0f1; font-weight: 700; border: 1px solid #bdc3c7; padding: 5px 6px; }
+                        .totals-block { width: 50%; margin-left: auto; margin-bottom: 16px; }
+                        .totals-block table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+                        .totals-block td { padding: 4px 8px; border: 1px solid #bdc3c7; }
+                        .totals-block .total-lbl { background-color: #ecf0f1; font-weight: 600; color: #2c3e50; }
+                        .totals-block .grand-total td { background-color: #2c3e50; color: #fff; font-weight: 700; font-size: 10pt; }
+                        .terms-block { margin: 10px 0 16px 0; font-size: 9pt; color: #444; border-left: 3px solid #bdc3c7; padding-left: 10px; }
+                        .page-break { page-break-before: always; padding-top: 10px; }
+                        .article-container { page-break-inside: avoid; margin-bottom: 15px; }
+                        .article-title { font-size: 11pt; font-weight: 700; color: #2c3e50; margin: 14px 0 6px 0; padding-bottom: 3px; border-bottom: 1px solid #bdc3c7; }
+                        .article-body { text-align: justify; margin-bottom: 10px; }
+                        .article-body p { margin: 4px 0; }
+                        .article-body ul { margin: 4px 0 4px 20px; padding: 0; }
+                        .article-body li { margin-bottom: 3px; }
+                        .governing-law { margin-top: 20px; padding: 8px 12px; background-color: #f8f9fa; border-left: 3px solid #2c3e50; font-style: italic; font-size: 9pt; }
+                        .signature-block { margin-top: 40px; page-break-inside: avoid; }
+                        .signature-table { width: 100%; border: none; }
+                        .signature-table td { width: 50%; text-align: center; padding: 20px; vertical-align: top; }
+                        .sig-label { font-weight: 700; font-size: 10pt; color: #2c3e50; border-bottom: 1px solid #2c3e50; padding-bottom: 4px; margin-bottom: 40px; display: inline-block; }
+                        .sig-line { margin-top: 50px; border-top: 1px solid #555; width: 60%; margin-left: auto; margin-right: auto; padding-top: 4px; font-size: 8pt; color: #777; }
+                    </style>
+
+                    <div class="hvac-quotation">
+
+                        <!-- Document Title -->
+                        <div class="doc-title">
+                            <h2>
+                                <t t-if="doc.state in ('draft', 'sent')">QUOTATION</t>
+                                <t t-else="">SALE ORDER</t>
+                            </h2>
+                            <span class="doc-ref">
+                                Ref: <t t-out="doc.name"/>
+                            <t t-if="doc.date_order">
+                                    — Date: <t t-out="doc.date_order" t-options='{"widget": "date"}'/>
+                            </t>
+                        </span>
+                    </div>
+                    <br/>
+
+                    <!-- Partner / Order Info -->
+                    <table class="info-table">
+                        <tr>
+                            <td class="lbl">Client</td>
+                            <td class="val">
+                                <t t-out="doc.partner_id.name"/>
+                            </td>
+                            <td class="lbl">Order Date</td>
+                            <td class="val">
+                                <t t-out="doc.date_order" t-options='{"widget": "date"}'/>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="lbl">Phone</td>
+                            <td class="val">
+                                <t t-out="doc.partner_id.phone or '—'"/>
+                            </td>
+                            <td class="lbl">Payment Terms</td>
+                            <td class="val">
+                                <t t-out="doc.payment_term_id.name or '—'"/>
+                            </td>
+                        </tr>
+                        <t t-if="doc.partner_shipping_id and doc.partner_shipping_id != doc.partner_id">
+                            <tr>
+                                <td class="lbl">Delivery Address</td>
+                                <td class="val" colspan="3">
+                                    <t t-out="', '.join(filter(None, [
+                                            doc.partner_shipping_id.street or '',
+                                            doc.partner_shipping_id.street2 or '',
+                                            doc.partner_shipping_id.city or '',
+                                            doc.partner_shipping_id.state_id.name if doc.partner_shipping_id.state_id else '',
+                                            doc.partner_shipping_id.country_id.name if doc.partner_shipping_id.country_id else '',
+                                        ]))"/>
+                                </td>
+                            </tr>
+                        </t>
+                        <t t-if="doc.x_contract_ref">
+                            <tr>
+                                <td class="lbl">Contract Ref.</td>
+                                <td class="val">
+                                    <t t-out="doc.x_contract_ref"/>
+                                </td>
+                                <td class="lbl">Contract Date</td>
+                                <td class="val">
+                                    <t t-out="doc.x_contract_date" t-options='{"widget": "date"}'/>
+                                </td>
+                            </tr>
+                        </t>
+                    </table>
+
+                    <!-- Product Lines -->
+                    <table class="lines-table">
+                        <thead>
+                            <tr>
+                                <th style="width:5%">No.</th>
+                                <th style="width:38%">Description</th>
+                                <th style="width:8%">Qty</th>
+                                <th style="width:10%">UOM</th>
+                                <th style="width:14%">Unit Price</th>
+                                <th style="width:10%">Disc.%</th>
+                                <th style="width:15%">Subtotal</th>
+                                <th t-if="doc.x_show_btu" style="width:7%">BTU</th>
+                                <th t-if="doc.x_show_cfm" style="width:7%">CFM</th>
+                                <th t-if="doc.x_show_kw" style="width:7%">kW</th>
+                                <th t-if="doc.x_show_hp" style="width:7%">HP</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-set="seq" t-value="0"/>
+                            <t t-foreach="doc.order_line" t-as="line">
+                                <t t-if="line.display_type == 'line_section'">
+                                    <tr class="section-row">
+                                        <td t-att-colspan="total_cols">
+                                            <t t-out="line.name"/>
+                                        </td>
+                                    </tr>
+                                    <t t-set="seq" t-value="0"/>
+                                </t>
+                                <t t-elif="line.display_type == 'line_note'">
+                                    <tr class="note-row">
+                                        <td t-att-colspan="total_cols">
+                                            <t t-out="line.name"/>
+                                        </td>
+                                    </tr>
+                                </t>
+                                <t t-elif="not line.display_type">
+                                    <t t-set="seq" t-value="seq + 1"/>
+                                    <tr>
+                                        <td style="text-align:center;">
+                                            <t t-out="seq"/>
+                                        </td>
+                                        <td class="desc-cell">
+                                            <t t-out="line.name"/>
+                                        </td>
+                                        <td style="text-align:center;">
+                                            <t t-out="int(line.product_uom_qty)"/>
+                                        </td>
+                                        <td style="text-align:center;">
+                                            <t t-out="line.product_uom_id.name or '—'"/>
+                                        </td>
+                                        <td style="text-align:right;">
+                                            <t t-out="line.price_unit" t-options='{"widget": "monetary", "display_currency": doc.currency_id}'/>
+                                        </td>
+                                        <td style="text-align:center;">
+                                            <t t-if="line.discount">
+                                                <t t-out="'{:.1f}'.format(line.discount)"/>
+%
+                                            </t>
+                                            <t t-else="">—</t>
+                                        </td>
+                                        <td style="text-align:right;">
+                                            <t t-out="line.price_subtotal" t-options='{"widget": "monetary", "display_currency": doc.currency_id}'/>
+                                        </td>
+                                        <td t-if="doc.x_show_btu" style="text-align:center;">
+                                            <t t-out="'{:,.2f}'.format(line.x_line_btu)"/>
+                                        </td>
+                                        <td t-if="doc.x_show_cfm" style="text-align:center;">
+                                            <t t-out="'{:,.2f}'.format(line.x_line_cfm)"/>
+                                        </td>
+                                        <td t-if="doc.x_show_kw" style="text-align:center;">
+                                            <t t-out="'{:,.3f}'.format(line.x_line_kw)"/>
+                                        </td>
+                                        <td t-if="doc.x_show_hp" style="text-align:center;">
+                                            <t t-out="'{:,.2f}'.format(line.x_line_hp)"/>
+                                        </td>
+                                    </tr>
+                                </t>
+                            </t>
+                        </tbody>
+                    </table>
+
+                    <!-- HVAC Project Totals (only the enabled units) -->
+                    <t t-if="n_units">
+                        <div class="totals-block">
+                            <table>
+                                <tr class="grand-total">
+                                    <td colspan="2" style="text-align:center;">HVAC Project Totals</td>
+                                </tr>
+                                <tr t-if="doc.x_show_btu">
+                                    <td class="total-lbl">Total BTU</td>
+                                    <td style="text-align:right;">
+                                        <t t-out="'{:,.2f}'.format(doc.x_total_project_btu)"/>
+                                    </td>
+                                </tr>
+                                <tr t-if="doc.x_show_cfm">
+                                    <td class="total-lbl">Total CFM</td>
+                                    <td style="text-align:right;">
+                                        <t t-out="'{:,.2f}'.format(doc.x_total_project_cfm)"/>
+                                    </td>
+                                </tr>
+                                <tr t-if="doc.x_show_kw">
+                                    <td class="total-lbl">Total kW</td>
+                                    <td style="text-align:right;">
+                                        <t t-out="'{:,.3f}'.format(doc.x_total_project_kw)"/>
+                                    </td>
+                                </tr>
+                                <tr t-if="doc.x_show_hp">
+                                    <td class="total-lbl">Total HP</td>
+                                    <td style="text-align:right;">
+                                        <t t-out="'{:,.2f}'.format(doc.x_total_project_hp)"/>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </t>
+
+                    <!-- Totals Block -->
+                    <div class="totals-block">
+                        <table>
+                            <tr>
+                                <td class="total-lbl">Subtotal (Excl. Tax)</td>
+                                <td style="text-align:right;">
+                                    <t t-out="doc.amount_untaxed" t-options='{"widget": "monetary", "display_currency": doc.currency_id}'/>
+                                </td>
+                            </tr>
+                            <t t-if="doc.amount_tax">
+                                <tr>
+                                    <td class="total-lbl">Taxes</td>
+                                    <td style="text-align:right;">
+                                        <t t-out="doc.amount_tax" t-options='{"widget": "monetary", "display_currency": doc.currency_id}'/>
+                                    </td>
+                                </tr>
+                            </t>
+                            <tr class="grand-total">
+                                <td>TOTAL</td>
+                                <td style="text-align:right;">
+                                    <t t-out="doc.amount_total" t-options='{"widget": "monetary", "display_currency": doc.currency_id}'/>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Terms and Conditions -->
+                    <t t-if="doc.note">
+                        <div class="terms-block">
+                            <strong>Notes &amp; Terms:</strong>
+                            <br/>
+                            <t t-out="doc.note" t-options='{"widget": "html"}'/>
+                        </div>
+                    </t>
+
+                    <!-- ══════════════════════════════════════════
+                             DYNAMIC CLAUSES (same as contract report)
+                             ══════════════════════════════════════════ -->
+                    <t t-set="article_num" t-value="0"/>
+                    <t t-foreach="clauses" t-as="clause">
+                        <t t-if="clause.page_break_before or clause_index == 0">
+                            <div class="page-break"/>
+                        </t>
+
+                        <div class="article-container">
+                            <t t-set="article_num" t-value="article_num + 1"/>
+
+                            <div class="article-title">
+                                    Article <t t-out="article_num"/>
+ —
+                            <t t-out="clause.title" t-options='{"widget": "html"}'/>
+                        </div>
+
+                        <t t-if="clause.preamble">
+                            <div class="article-body">
+                                <t t-out="clause.preamble" t-options='{"widget": "html"}'/>
+                            </div>
+                        </t>
+
+                        <t t-if="clause.child_ids">
+                            <div class="article-body">
+                                <ul>
+                                    <t t-foreach="clause.child_ids.sorted(key=lambda c: c.sequence)" t-as="child">
+                                        <li>
+                                            <t t-out="child.title" t-options='{"widget": "html"}'/>
+                                        </li>
+                                    </t>
+                                </ul>
+                            </div>
+                        </t>
+                    </div>
+                </t>
+
+                <!-- Governing Law -->
+                <div class="governing-law">
+                            This quotation and any resulting contract shall be governed by and construed in
+                            accordance with the applicable laws and regulations of the
+                    <strong>State of Kuwait</strong>. Any disputes shall be subject to the
+                            jurisdiction of the competent courts of the State of Kuwait.
+                </div>
+
+                <!-- Signature Block -->
+                <div class="signature-block">
+                    <table class="signature-table">
+                        <tr>
+                            <td>
+                                <div class="sig-label">First Party (Contractor)</div>
+                                <br/>
+                                <strong><t t-out="doc.company_id.name"/></strong>
+                                <div class="sig-line">Authorized Signature &amp; Stamp</div>
+                                <img src="/hvac_sales_extension/static/src/img/hvac_stamp.png"
+                                     style="display: block; width: 42mm; margin: 10px auto 0 auto; opacity: 0.9;"/>
+                            </td>
+                            <td>
+                                <div class="sig-label">Second Party (Client)</div>
+                                <br/>
+                                <strong><t t-out="doc.partner_id.name"/></strong>
+                                <div class="sig-line">Signature</div>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>            <!-- /hvac-quotation -->
+        </t>
+    </t>
+</t>
+</template>
+
+</odoo>

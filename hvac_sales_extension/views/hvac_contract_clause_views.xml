@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         HVAC Contract Clause — List View
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <record id="hvac_contract_clause_view_list" model="ir.ui.view">
+        <field name="name">hvac.contract.clause.list</field>
+        <field name="model">hvac.contract.clause</field>
+        <field name="arch" type="xml">
+            <list string="Contract Clauses" default_order="sequence">
+                <field name="sequence" widget="handle"/>
+                <field name="clause_ref"/>
+                <field name="is_parent" string="Parent?" widget="boolean"/>
+                <field name="parent_id" optional="show"/>
+                <field name="page_break_before" optional="hide"/>
+                <field name="active" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         HVAC Contract Clause — Form View
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <record id="hvac_contract_clause_view_form" model="ir.ui.view">
+        <field name="name">hvac.contract.clause.form</field>
+        <field name="model">hvac.contract.clause</field>
+        <field name="arch" type="xml">
+            <form string="Contract Clause">
+                <sheet>
+                    <!-- Header -->
+                    <div class="oe_title">
+                        <label for="clause_ref"/>
+                        <h1>
+                            <field name="clause_ref" placeholder="e.g. Scope of Work / نطاق العمل"/>
+                        </h1>
+                    </div>
+
+                    <group>
+                        <group string="Settings">
+                            <field name="is_parent" widget="boolean_toggle"/>
+                            <field name="sequence"/>
+                            <field name="page_break_before" widget="boolean_toggle"/>
+                            <field name="active"/>
+                            <!-- Parent selector — hidden when is_parent=True -->
+                            <field name="parent_id" invisible="is_parent" options="{'no_create': True}"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <!-- ── English Tab ── -->
+                        <page string="English (EN)" name="tab_en">
+                            <group string="Title">
+                                <field name="title" widget="html" nolabel="1" colspan="2" placeholder="Article title in English…"/>
+                            </group>
+                            <!-- Preamble — only for parent clauses -->
+                            <group string="Preamble (optional intro before sub-clauses)" invisible="not is_parent">
+                                <field name="preamble" widget="html" nolabel="1" colspan="2" placeholder="Introductory paragraph before the bullet list…"/>
+                            </group>
+                        </page>
+
+                        <!-- ── Arabic Tab ── -->
+                        <page string="العربية (AR)" name="tab_ar">
+                            <group string="العنوان">
+                                <field name="title_ar" widget="html" nolabel="1" colspan="2" placeholder="عنوان المادة بالعربية…"/>
+                            </group>
+                            <!-- Preamble AR — only for parent clauses -->
+                            <group string="المقدمة (اختياري — قبل البنود الفرعية)" invisible="not is_parent">
+                                <field name="preamble_ar" widget="html" nolabel="1" colspan="2" placeholder="جملة تمهيدية قبل القائمة…"/>
+                            </group>
+                        </page>
+
+                        <!-- ── Sub-Clauses Tab — only for parent clauses ── -->
+                        <page string="Sub-Clauses / البنود الفرعية" name="tab_children" invisible="not is_parent">
+                            <field name="child_ids" nolabel="1" context="{'default_is_parent': False}">
+                                <list editable="bottom" default_order="sequence">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="clause_ref" string="Reference"/>
+                                    <field name="title" string="Content (EN)" widget="html"/>
+                                    <field name="title_ar" string="Content (AR)" widget="html" optional="show"/>
+                                    <field name="is_parent" optional="show"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         HVAC Contract Clause — Search View
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <record id="hvac_contract_clause_view_search" model="ir.ui.view">
+        <field name="name">hvac.contract.clause.search</field>
+        <field name="model">hvac.contract.clause</field>
+        <field name="arch" type="xml">
+            <search string="Contract Clauses">
+                <field name="clause_ref"/>
+                <separator/>
+                <filter name="active" string="Active" domain="[('active', '=', True)]"/>
+                <filter name="archived" string="Archived" domain="[('active', '=', False)]" context="{'active_test': False}"/>
+            </search>
+        </field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         Action
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <record id="hvac_contract_clause_action" model="ir.actions.act_window">
+        <field name="name">Contract Clauses</field>
+        <field name="res_model">hvac.contract.clause</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('is_parent', '=', True)]</field>
+        <field name="context">{'default_is_parent': True, 'active_test': True}</field>
+        <field name="search_view_id" ref="hvac_contract_clause_view_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first contract clause
+            </p>
+            <p>
+                Parent clauses become Article headings (Article 2, 3, …).
+                Add sub-clauses inside each article for the bullet points.
+                Article 1 (Equipment Schedule) is always generated automatically.
+            </p>
+        </field>
+    </record>
+
+    <menuitem id="menu_hvac_contract_clauses" name="Contract Clauses" parent="hvac_sales_extension.menu_hvac_config_root" action="hvac_contract_clause_action" sequence="40"/>
+
+</odoo>

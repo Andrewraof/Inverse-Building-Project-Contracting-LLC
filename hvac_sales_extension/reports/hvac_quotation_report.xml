@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         English Quotation Report Action
+         ═══════════════════════════════════════════════════════════════ -->
+    <record id="action_report_hvac_quotation_en" model="ir.actions.report">
+        <field name="name">HVAC Quotation (English)</field>
+        <field name="model">sale.order</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">hvac_sales_extension.report_hvac_quotation_en</field>
+        <field name="report_file">hvac_sales_extension.report_hvac_quotation_en</field>
+        <field name="print_report_name">'Quotation - %s' % (object.name)</field>
+        <field name="paperformat_id" ref="paperformat_hvac_contract"/>
+        <field name="binding_model_id" ref="sale.model_sale_order"/>
+        <field name="binding_type">report</field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         Arabic Quotation Report Action
+         ═══════════════════════════════════════════════════════════════ -->
+    <record id="action_report_hvac_quotation_ar" model="ir.actions.report">
+        <field name="name">عرض السعر (عربي)</field>
+        <field name="model">sale.order</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">hvac_sales_extension.report_hvac_quotation_ar</field>
+        <field name="report_file">hvac_sales_extension.report_hvac_quotation_ar</field>
+        <field name="print_report_name">'عرض سعر - %s' % (object.name)</field>
+        <field name="paperformat_id" ref="paperformat_hvac_contract"/>
+        <field name="binding_model_id" ref="sale.model_sale_order"/>
+        <field name="binding_type">report</field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         Remove Odoo's standard Quotation / Order report from the Print
+         menu so the native Print button surfaces only the HVAC reports.
+         ═══════════════════════════════════════════════════════════════ -->
+    <record id="sale.action_report_saleorder" model="ir.actions.report">
+        <field name="binding_model_id" eval="False"/>
+    </record>
+
+</odoo>

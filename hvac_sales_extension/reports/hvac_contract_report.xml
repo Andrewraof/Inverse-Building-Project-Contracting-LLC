@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Custom Paper Format — A4 -->
+    <record id="paperformat_hvac_contract" model="report.paperformat">
+        <field name="name">HVAC Contract (A4)</field>
+        <field name="default" eval="False"/>
+        <field name="format">A4</field>
+        <field name="orientation">Portrait</field>
+        <field name="margin_top">40</field>
+        <field name="margin_bottom">35</field>
+        <field name="margin_left">0</field>
+        <field name="margin_right">0</field>
+        <field name="header_line" eval="False"/>
+        <field name="header_spacing">35</field>
+        <field name="dpi">96</field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         English Report Action
+         ═══════════════════════════════════════════════════════════════ -->
+    <record id="action_report_hvac_contract_en" model="ir.actions.report">
+        <field name="name">HVAC Installation Contract (English)</field>
+        <field name="model">sale.order</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">hvac_sales_extension.report_hvac_contract_en</field>
+        <field name="report_file">hvac_sales_extension.report_hvac_contract_en</field>
+        <field name="print_report_name">'HVAC Contract - %s' % (object.x_contract_ref or object.name)</field>
+        <field name="paperformat_id" ref="paperformat_hvac_contract"/>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         Arabic Report Action
+         ═══════════════════════════════════════════════════════════════ -->
+    <record id="action_report_hvac_contract_ar" model="ir.actions.report">
+        <field name="name">عقد تركيب التكييف (عربي)</field>
+        <field name="model">sale.order</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">hvac_sales_extension.report_hvac_contract_ar</field>
+        <field name="report_file">hvac_sales_extension.report_hvac_contract_ar</field>
+        <field name="print_report_name">'عقد تركيب - %s' % (object.x_contract_ref or object.name)</field>
+        <field name="paperformat_id" ref="paperformat_hvac_contract"/>
+    </record>
+
+</odoo>

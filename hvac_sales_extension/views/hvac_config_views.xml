@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         HVAC Transaction Type — Tree / Form / Action / Menu
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <record id="hvac_transaction_type_view_tree" model="ir.ui.view">
+        <field name="name">hvac.transaction.type.tree</field>
+        <field name="model">hvac.transaction.type</field>
+        <field name="arch" type="xml">
+            <list string="Transaction Types">
+                <field name="name"/>
+                <field name="active" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="hvac_transaction_type_view_form" model="ir.ui.view">
+        <field name="name">hvac.transaction.type.form</field>
+        <field name="model">hvac.transaction.type</field>
+        <field name="arch" type="xml">
+            <form string="Transaction Type">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. New Installation"/></h1>
+                    </div>
+                    <group>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="hvac_transaction_type_action" model="ir.actions.act_window">
+        <field name="name">Transaction Types</field>
+        <field name="res_model">hvac.transaction.type</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first HVAC transaction type
+            </p>
+            <p>Examples: New Installation, Replacement, Maintenance Contract</p>
+        </field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         HVAC Brand — Tree / Form / Action / Menu
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <record id="hvac_brand_view_tree" model="ir.ui.view">
+        <field name="name">hvac.brand.tree</field>
+        <field name="model">hvac.brand</field>
+        <field name="arch" type="xml">
+            <list string="Brands">
+                <field name="name"/>
+                <field name="active" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="hvac_brand_view_form" model="ir.ui.view">
+        <field name="name">hvac.brand.form</field>
+        <field name="model">hvac.brand</field>
+        <field name="arch" type="xml">
+            <form string="Brand">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. Carrier"/></h1>
+                    </div>
+                    <group>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="hvac_brand_action" model="ir.actions.act_window">
+        <field name="name">Brands</field>
+        <field name="res_model">hvac.brand</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first HVAC brand
+            </p>
+            <p>Examples: Carrier, Daikin, Trane, LG, Mitsubishi</p>
+        </field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         HVAC Gas Type — Tree / Form / Action / Menu
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <record id="hvac_gas_type_view_tree" model="ir.ui.view">
+        <field name="name">hvac.gas.type.tree</field>
+        <field name="model">hvac.gas.type</field>
+        <field name="arch" type="xml">
+            <list string="Gas Types">
+                <field name="name"/>
+                <field name="active" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="hvac_gas_type_view_form" model="ir.ui.view">
+        <field name="name">hvac.gas.type.form</field>
+        <field name="model">hvac.gas.type</field>
+        <field name="arch" type="xml">
+            <form string="Gas Type">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. R-410A"/></h1>
+                    </div>
+                    <group>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="hvac_gas_type_action" model="ir.actions.act_window">
+        <field name="name">Gas Types</field>
+        <field name="res_model">hvac.gas.type</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first HVAC gas type
+            </p>
+            <p>Examples: R-410A, R-32, R-22, R-134a</p>
+        </field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         Menus:  Sales → Configuration → HVAC
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <menuitem id="menu_hvac_config_root"
+              name="HVAC"
+              parent="sale.menu_sale_config"
+              sequence="90"/>
+
+    <menuitem id="menu_hvac_transaction_type"
+              name="Transaction Types"
+              parent="menu_hvac_config_root"
+              action="hvac_transaction_type_action"
+              sequence="10"/>
+
+    <menuitem id="menu_hvac_brand"
+              name="Brands"
+              parent="menu_hvac_config_root"
+              action="hvac_brand_action"
+              sequence="20"/>
+
+    <menuitem id="menu_hvac_gas_type"
+              name="Gas Types"
+              parent="menu_hvac_config_root"
+              action="hvac_gas_type_action"
+              sequence="30"/>
+
+</odoo>

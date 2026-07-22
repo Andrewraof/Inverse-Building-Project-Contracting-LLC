@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Inherit the standard Sale Order document to apply the HVAC contract
+         layout (dynamic company branding: logo, name, address, contact). -->
+    <template id="report_saleorder_document_inherit_hvac" inherit_id="sale.report_saleorder_document">
+        <!-- Target any element that calls the external_layout and switch it to our custom layout -->
+        <xpath expr="//*[contains(@t-call, 'web.external_layout') or contains(@t-call, 'external_layout')]" position="attributes">
+            <attribute name="t-call">hvac_sales_extension.hvac_contract_layout</attribute>
+        </xpath>
+    </template>
+
+    <!-- Link the Sale Order report to the HVAC paperformat for correct branding margins -->
+    <record id="sale.action_report_saleorder" model="ir.actions.report">
+        <field name="paperformat_id" ref="hvac_sales_extension.paperformat_hvac_contract"/>
+        <!-- Remove from the Print menu — replaced by the wizard action below -->
+        <field name="binding_model_id" eval="False"/>
+    </record>
+
+    <!-- Also for the pro-forma invoice if used -->
+    <record id="sale.action_report_pro_forma_invoice" model="ir.actions.report">
+        <field name="paperformat_id" ref="hvac_sales_extension.paperformat_hvac_contract"/>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         Replace the standard Sale Order print entry with a wizard action
+         that asks for language (EN / AR) before generating the PDF.
+         binding_type='report' places it in the Print dropdown menu.
+         ═══════════════════════════════════════════════════════════════ -->
+    <record id="action_print_sale_order_wizard" model="ir.actions.server">
+        <field name="name">Sale Order / Quotation</field>
+        <field name="model_id" ref="sale.model_sale_order"/>
+        <field name="binding_model_id" ref="sale.model_sale_order"/>
+        <field name="binding_type">report</field>
+        <field name="state">code</field>
+        <field name="code">
+if records:
+    action = records[0].action_print_quotation()
+        </field>
+    </record>
+
+</odoo>

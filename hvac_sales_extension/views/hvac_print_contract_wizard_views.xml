@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         Print Contract Wizard — Language Selection Dialog
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <record id="hvac_print_contract_wizard_view_form" model="ir.ui.view">
+        <field name="name">hvac.print.contract.wizard.form</field>
+        <field name="model">hvac.print.contract.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Print Contract">
+                <sheet>
+                    <div class="oe_title">
+                        <h3>Select Contract Language / اختر لغة العقد</h3>
+                    </div>
+                    <group>
+                        <field name="order_id" invisible="1"/>
+                        <field name="language" widget="radio"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_print"
+                            string="Print / طباعة"
+                            type="object"
+                            class="btn-primary"
+                            icon="fa-print"/>
+                    <button string="Cancel / إلغاء"
+                            class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

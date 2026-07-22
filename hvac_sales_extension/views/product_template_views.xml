@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         Product Template Form — HVAC Specifications Tab
+         ═══════════════════════════════════════════════════════════════
+
+         Inherits:  product.product_template_only_form_view
+           which in turn inherits: product.product_template_form_view
+
+         Base view pages (product_views.xml):
+           - page[@name='general_information']  ← anchor used below
+           - page[@name='sales']                (invisible="1 or not sale_ok")
+
+         We insert our tab AFTER general_information so it appears
+         prominently as the second tab on every product form.
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <record id="view_product_template_form_inherit_hvac" model="ir.ui.view">
+        <field name="name">product.template.form.inherit.hvac</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_only_form_view"/>
+        <field name="arch" type="xml">
+
+            <xpath expr="//page[@name='general_information']" position="after">
+                <page string="HVAC Specifications" name="hvac_specifications">
+                    <group>
+                        <group>
+                            <field name="x_hvac_auto_calc"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group>
+                            <field name="x_hvac_btu"/>
+                            <field name="x_hvac_cfm" readonly="x_hvac_auto_calc"/>
+                            <field name="x_hvac_kw" readonly="x_hvac_auto_calc"/>
+                            <field name="x_hvac_hp" readonly="x_hvac_auto_calc"/>
+                        </group>
+                    </group>
+                </page>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <template id="hvac_contract_layout">
+        <t t-if="not o" t-set="o" t-value="doc"/>
+        <t t-if="not company" t-set="company" t-value="res_company"/>
+
+        <!-- Header: active company logo and name (no hardcoded branding) -->
+        <div class="header" style="padding-top: 10mm;">
+            <div class="row" style="width: 100%; margin: 0; align-items: center;">
+                <div class="col-4">
+                    <img t-if="company.logo" t-att-src="image_data_uri(company.logo)"
+                         style="max-height: 20mm; max-width: 100%; display: block;"/>
+                </div>
+                <div class="col-8 text-right" style="text-align: right;">
+                    <span style="font-size: 16px; font-weight: bold;" t-field="company.name"/>
+                </div>
+            </div>
+        </div>
+
+        <!-- Content Area -->
+        <div class="article o_report_layout_standard o_table_standard" t-att-data-oe-model="o and o._name" t-att-data-oe-id="o and o.id" t-att-data-oe-lang="o and o.env.context.get('lang')" style="padding: 15mm 15mm 15mm 15mm !important;">
+            <t t-out="0"/>
+        </div>
+
+        <!-- Footer: active company address / phone / email / website -->
+        <div class="footer" style="padding: 0; margin: 0; position: relative; height: 40mm;">
+            <div class="text-center" style="position: absolute; bottom: 14mm; width: 100%; font-size: 9px; color: #444;">
+                <t t-out="', '.join(filter(None, [company.street, company.street2, company.city, company.country_id.name]))"/>
+                <br/>
+                <t t-if="company.phone">Tel: <t t-out="company.phone"/></t>
+                <t t-if="company.email"> | Email: <t t-out="company.email"/></t>
+                <t t-if="company.website"> | <t t-out="company.website"/></t>
+            </div>
+
+            <!-- Page numbering -->
+            <div class="row text-center" style="position: absolute; bottom: 8mm; width: 100%; font-size: 10px; color: #666; z-index: 10;">
+                <div class="col-12">
+                    Page <span class="page"/>
+ /                <span class="topage"/>
+            </div>
+        </div>
+    </div>
+</template>
+
+</odoo>

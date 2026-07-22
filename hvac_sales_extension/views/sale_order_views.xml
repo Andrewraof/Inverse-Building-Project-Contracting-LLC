@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         Sale Order Form — HVAC Header + Line Columns + Totals
+                         + Contract Workflow Buttons
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <record id="view_order_form_inherit_hvac" model="ir.ui.view">
+        <field name="name">sale.order.form.inherit.hvac</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+
+            <!-- ══════════════════════════════════════════════════════
+                 CONTRACT WORKFLOW — Statusbar + Buttons
+                 ══════════════════════════════════════════════════════ -->
+
+            <!-- 1. Extend statusbar to show the contract step -->
+            <xpath expr="//field[@name='state'][@widget='statusbar']" position="attributes">
+                <attribute name="statusbar_visible">draft,sent,contract,sale</attribute>
+            </xpath>
+
+            <!-- 2. Hide the original "Confirm" button (state='sent') — must go through contract -->
+            <xpath expr="//header/button[@id='action_confirm']" position="attributes">
+                <attribute name="invisible">state != 'contract'</attribute>
+            </xpath>
+
+            <!-- 3. Hide the original "Confirm" button (state='draft') -->
+            <xpath expr="//header/button[@name='action_confirm'][not(@id)]" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+
+            <!-- 4. "Create Contract" button — visible in draft / sent -->
+            <xpath expr="//header/button[@id='action_confirm']" position="before">
+                <button name="action_create_contract"
+                        string="Create Contract"
+                        type="object"
+                        class="btn-primary"
+                        data-hotkey="shift+c"
+                        invisible="state not in ('draft', 'sent')"/>
+            </xpath>
+
+            <!-- 5. "Print Contract" button — visible in contract OR sale state -->
+            <xpath expr="//header/button[@id='action_confirm']" position="before">
+                <button name="action_print_contract"
+                        string="Print Contract"
+                        type="object"
+                        class="btn-secondary"
+                        icon="fa-print"
+                        data-hotkey="shift+p"
+                        invisible="state not in ('contract', 'sale')"/>
+            </xpath>
+
+            <!-- 6. Allow cancel from contract state too -->
+            <xpath expr="//header/button[@name='action_cancel']" position="attributes">
+                <attribute name="invisible">state not in ('draft', 'sent', 'contract', 'sale') or not id or locked</attribute>
+            </xpath>
+
+            <!-- ══════════════════════════════════════════════════════
+                 HVAC HEADER FIELDS
+                 ══════════════════════════════════════════════════════ -->
+
+            <xpath expr="//group[@name='order_details']/field[@name='payment_term_id']" position="after">
+                <field name="x_transaction_type"/>
+                <field name="x_machine_brand_id"/>
+                <field name="x_gas_type"/>
+                <field name="x_paci_number"/>
+                <field name="x_contract_ref" invisible="not x_contract_ref"/>
+                <field name="x_contract_date" invisible="not x_contract_date"/>
+                <label for="x_show_btu" string="Show Units in Print"/>
+                <div class="o_row">
+                    <field name="x_show_btu"/>
+                    <span class="me-2">BTU</span>
+                    <field name="x_show_cfm"/>
+                    <span class="me-2">CFM</span>
+                    <field name="x_show_kw"/>
+                    <span class="me-2">kW</span>
+                    <field name="x_show_hp"/>
+                    <span class="me-2">HP</span>
+                </div>
+            </xpath>
+
+            <!-- ══════════════════════════════════════════════════════
+                 HVAC COLUMNS ON ORDER LINES
+                 ══════════════════════════════════════════════════════ -->
+
+            <xpath expr="//field[@name='order_line']/list/field[@name='price_subtotal'][not(@optional)]" position="after">
+                <field name="x_line_btu" string="BTU" optional="show" sum="Total BTU"/>
+                <field name="x_line_cfm" string="CFM" optional="show" sum="Total CFM"/>
+                <field name="x_line_kw"  string="kW"  optional="show" sum="Total kW"/>
+                <field name="x_line_hp"  string="HP"  optional="show" sum="Total HP"/>
+            </xpath>
+
+            <!-- ══════════════════════════════════════════════════════
+                 HVAC PROJECT TOTALS
+                 ══════════════════════════════════════════════════════ -->
+
+            <xpath expr="//group[@name='sale_total']/field[@name='tax_totals']" position="before">
+                <div class="o_sale_total_entry" name="hvac_totals_separator">
+                    <span class="fw-bold">HVAC Project Totals</span>
+                </div>
+                <div class="o_sale_total_entry" name="hvac_total_btu">
+                    <span>Total BTU</span>
+                    <field name="x_total_project_btu" nolabel="1" readonly="1"/>
+                </div>
+                <div class="o_sale_total_entry" name="hvac_total_cfm">
+                    <span>Total CFM</span>
+                    <field name="x_total_project_cfm" nolabel="1" readonly="1"/>
+                </div>
+                <div class="o_sale_total_entry" name="hvac_total_kw">
+                    <span>Total kW</span>
+                    <field name="x_total_project_kw" nolabel="1" readonly="1"/>
+                </div>
+                <div class="o_sale_total_entry" name="hvac_total_hp">
+                    <span>Total HP</span>
+                    <field name="x_total_project_hp" nolabel="1" readonly="1"/>
+                </div>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

@@ -1,0 +1,8 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_hvac_transaction_type_user,hvac.transaction.type user,model_hvac_transaction_type,base.group_user,1,1,1,1
+access_hvac_brand_user,hvac.brand user,model_hvac_brand,base.group_user,1,1,1,1
+access_hvac_gas_type_user,hvac.gas.type user,model_hvac_gas_type,base.group_user,1,1,1,1
+access_hvac_contract_clause_user,hvac.contract.clause user,model_hvac_contract_clause,base.group_user,1,0,0,0
+access_hvac_contract_clause_manager,hvac.contract.clause manager,model_hvac_contract_clause,sales_team.group_sale_manager,1,1,1,1
+access_hvac_print_wizard_user,hvac.print.contract.wizard user,model_hvac_print_contract_wizard,base.group_user,1,1,1,1
+access_hvac_print_quotation_wizard_user,hvac.print.quotation.wizard user,model_hvac_print_quotation_wizard,base.group_user,1,1,1,1

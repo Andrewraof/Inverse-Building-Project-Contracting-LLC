@@ -1,0 +1,526 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         HVAC Installation Contract — Dynamic QWeb Report Template
+         - Article 1 (Equipment Schedule) is STATIC / hardcoded
+         - Articles 2+ are DYNAMIC from hvac.contract.clause records
+         - Bilingual: EN fields when x_contract_language='en',
+                      AR fields when x_contract_language='ar'
+         ═══════════════════════════════════════════════════════════════ -->
+
+    <template id="report_hvac_contract">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="doc">
+                <t t-call="web.external_layout">
+                    <t t-set="doc" t-value="doc"/>
+                    <t t-set="company" t-value="doc.company_id"/>
+                    <!-- Resolve language once for this document -->
+                    <t t-set="is_ar" t-value="doc.x_contract_language == 'ar'"/>
+
+                    <!-- ════════════════════════════════════════════
+                         CSS STYLING
+                         ════════════════════════════════════════════ -->
+                    <style>
+                        .hvac-contract {
+                            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                            font-size: 10pt;
+                            line-height: 1.5;
+                            color: #1a1a1a;
+                        }
+                        /* RTL wrapper for Arabic contracts */
+                        .hvac-contract.rtl {
+                            direction: rtl;
+                            text-align: right;
+                        }
+                        .contract-title {
+                            text-align: center;
+                            margin-bottom: 16px;
+                            padding-bottom: 8px;
+                            border-bottom: 2px solid #2c3e50;
+                        }
+                        .contract-title h2 {
+                            font-size: 16pt;
+                            font-weight: 700;
+                            color: #2c3e50;
+                            margin: 0 0 4px 0;
+                            letter-spacing: 1px;
+                        }
+                        .contract-title .contract-ref {
+                            font-size: 10pt;
+                            color: #555;
+                        }
+                        .info-table {
+                            width: 100%;
+                            border-collapse: collapse;
+                            margin-bottom: 16px;
+                        }
+                        .info-table td {
+                            padding: 4px 8px;
+                            border: 1px solid #bdc3c7;
+                            font-size: 9pt;
+                        }
+                        .info-table td.label-cell {
+                            background-color: #ecf0f1;
+                            font-weight: 600;
+                            width: 25%;
+                            color: #2c3e50;
+                        }
+                        .info-table td.value-cell {
+                            width: 25%;
+                        }
+                        .article-title {
+                            font-size: 11pt;
+                            font-weight: 700;
+                            color: #2c3e50;
+                            margin: 14px 0 6px 0;
+                            padding-bottom: 3px;
+                            border-bottom: 1px solid #bdc3c7;
+                        }
+                        .article-body {
+                            text-align: justify;
+                            margin-bottom: 10px;
+                        }
+                        .article-body p { margin: 4px 0; }
+                        .article-body ul {
+                            margin: 4px 0 4px 20px;
+                            padding: 0;
+                        }
+                        .article-body li { margin-bottom: 3px; }
+                        /* Child clause rendered as a plain block (not bullet)
+                           when the clause HTML already contains its own list markup */
+                        .clause-item {
+                            margin-bottom: 6px;
+                        }
+                        .equip-table {
+                            width: 100%;
+                            border-collapse: collapse;
+                            margin: 8px 0 12px 0;
+                            font-size: 8.5pt;
+                        }
+                        .equip-table thead th {
+                            background-color: #2c3e50;
+                            color: #fff;
+                            padding: 5px 4px;
+                            text-align: center;
+                            font-weight: 600;
+                            border: 1px solid #2c3e50;
+                        }
+                        .equip-table tbody td {
+                            padding: 4px;
+                            border: 1px solid #bdc3c7;
+                            text-align: center;
+                        }
+                        .equip-table .section-row td {
+                            background-color: #d5dce4;
+                            font-weight: 700;
+                            text-align: left;
+                            font-size: 9pt;
+                            color: #2c3e50;
+                        }
+                        .equip-table .desc-cell { text-align: left; }
+                        .equip-table tfoot td {
+                            background-color: #ecf0f1;
+                            font-weight: 700;
+                            border: 1px solid #bdc3c7;
+                            padding: 5px 4px;
+                        }
+                        .page-break {
+                            page-break-before: always;
+                            padding-top: 10px;
+                        }
+                        .signature-block {
+                            margin-top: 40px;
+                            page-break-inside: avoid;
+                        }
+                        .signature-table { width: 100%; border: none; }
+                        .signature-table td {
+                            width: 50%;
+                            text-align: center;
+                            padding: 20px;
+                            vertical-align: top;
+                        }
+                        .signature-table .sig-label {
+                            font-weight: 700;
+                            font-size: 10pt;
+                            color: #2c3e50;
+                            border-bottom: 1px solid #2c3e50;
+                            padding-bottom: 4px;
+                            margin-bottom: 40px;
+                            display: inline-block;
+                        }
+                        .signature-table .sig-line {
+                            margin-top: 50px;
+                            border-top: 1px solid #555;
+                            width: 60%;
+                            margin-left: auto;
+                            margin-right: auto;
+                            padding-top: 4px;
+                            font-size: 8pt;
+                            color: #777;
+                        }
+                        .governing-law {
+                            margin-top: 20px;
+                            padding: 8px 12px;
+                            background-color: #f8f9fa;
+                            border-left: 3px solid #2c3e50;
+                            font-style: italic;
+                            font-size: 9pt;
+                        }
+                    </style>
+
+                    <!-- Apply RTL class for Arabic contracts -->
+                    <div t-attf-class="hvac-contract{{ ' rtl' if is_ar else '' }}">
+
+                        <!-- ════════════════════════════════════════
+                             PAGE 1: HEADER + EQUIPMENT TABLE
+                             ════════════════════════════════════════ -->
+
+                        <!-- Contract Title -->
+                        <div class="contract-title">
+                            <h2>
+                                <t t-if="is_ar">عقد تركيب تكييف المركزي</t>
+                                <t t-else="">HVAC INSTALLATION CONTRACT</t>
+                            </h2>
+                            <span class="contract-ref">
+                                <t t-if="is_ar">رقم العقد:</t>
+                                <t t-else="">Contract Ref:</t>
+                                <t t-if="doc.x_contract_ref">
+                                    <t t-out="doc.x_contract_ref"/>
+                                </t>
+                                <t t-else="">
+                                    <t t-out="doc.name"/>
+                                </t>
+                                <t t-if="doc.x_contract_date">
+                                    —
+                                    <t t-if="is_ar">التاريخ:</t>
+                                    <t t-else="">Date:</t>
+                                    <t t-out="doc.x_contract_date" t-options='{"widget": "date"}'/>
+                                </t>
+                            </span>
+                        </div>
+                        <br/>
+                        <br/>
+
+                        <!-- Client Information Table -->
+                        <table class="info-table">
+                            <tr>
+                                <td class="label-cell">
+                                    <t t-if="is_ar">اسم العميل</t><t t-else="">Client Name</t>
+                                </td>
+                                <td class="value-cell">
+                                    <t t-out="doc.partner_id.name"/>
+                                </td>
+                                <td class="label-cell">
+                                    <t t-if="is_ar">تاريخ العقد</t><t t-else="">Contract Date</t>
+                                </td>
+                                <td class="value-cell">
+                                    <t t-out="doc.x_contract_date" t-options='{"widget": "date"}'/>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="label-cell">
+                                    <t t-if="is_ar">رقم البطاقة المدنية / باكي</t><t t-else="">Civil ID / PACI No.</t>
+                                </td>
+                                <td class="value-cell">
+                                    <t t-out="doc.x_paci_number or '—'"/>
+                                </td>
+                                <td class="label-cell">
+                                    <t t-if="is_ar">رقم الهاتف</t><t t-else="">Phone</t>
+                                </td>
+                                <td class="value-cell">
+                                    <t t-out="doc.partner_id.phone or '—'"/>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="label-cell">
+                                    <t t-if="is_ar">ماركة الجهاز</t><t t-else="">Machine Brand</t>
+                                </td>
+                                <td class="value-cell">
+                                    <t t-out="doc.x_machine_brand_id.name or '—'"/>
+                                </td>
+                                <td class="label-cell">
+                                    <t t-if="is_ar">نوع المعاملة</t><t t-else="">Transaction Type</t>
+                                </td>
+                                <td class="value-cell">
+                                    <t t-out="doc.x_transaction_type.name or '—'"/>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="label-cell">
+                                    <t t-if="is_ar">نوع الغاز</t><t t-else="">Gas Type</t>
+                                </td>
+                                <td class="value-cell">
+                                    <t t-out="doc.x_gas_type.name or '—'"/>
+                                </td>
+                                <td class="label-cell">
+                                    <t t-if="is_ar">رقم العرض</t><t t-else="">Quotation Ref.</t>
+                                </td>
+                                <td class="value-cell">
+                                    <t t-out="doc.name"/>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="label-cell">
+                                    <t t-if="is_ar">عنوان الموقع</t><t t-else="">Site Address</t>
+                                </td>
+                                <td class="value-cell" colspan="3">
+                                    <t t-if="doc.partner_shipping_id">
+                                        <t t-out="', '.join(filter(None, [
+                                            doc.partner_shipping_id.street or '',
+                                            doc.partner_shipping_id.street2 or '',
+                                            doc.partner_shipping_id.city or '',
+                                            doc.partner_shipping_id.state_id.name if doc.partner_shipping_id.state_id else '',
+                                            doc.partner_shipping_id.country_id.name if doc.partner_shipping_id.country_id else '',
+                                        ]))"/>
+                                    </t>
+                                    <t t-else="">—</t>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <!-- Preamble -->
+                        <div class="article-body">
+                            <t t-if="is_ar">
+                                <p>
+                                    تتعهد شركة <strong><t t-out="doc.company_id.name"/></strong>
+                                    (يُشار إليها فيما يلي بـ <strong>"المقاول"</strong> أو <strong>"الطرف الأول"</strong>)،
+                                    بالاستعانة بخبرتها التقنية ومهندسيها المؤهلين ومعداتها المتخصصة،
+                                    بتوريد وتركيب وتشغيل أنظمة تكييف الهواء المركزية في العقار المحدد أعلاه.
+                                </p>
+                                <p>
+                                    بموجب الاتفاق المتبادل وتنفيذ هذا العقد، يلتزم كلا الطرفين —
+                                    المقاول و<strong><t t-out="doc.partner_id.name"/></strong>
+                                    (يُشار إليه فيما يلي بـ <strong>"العميل"</strong> أو <strong>"الطرف الثاني"</strong>) —
+                                    بالشروط والأحكام والالتزامات المنصوص عليها في هذا العقد.
+                                </p>
+                            </t>
+                            <t t-else="">
+                                <p>
+                                    <strong><t t-out="doc.company_id.name"/></strong>
+                                    (hereinafter referred to as the
+                                    <strong>"Contractor"</strong> or <strong>"First Party"</strong>), leveraging its technical
+                                    expertise, qualified engineers, and specialized equipment, hereby undertakes to supply,
+                                    install, and commission central air conditioning systems at the property specified above.
+                                </p>
+                                <p>
+                                    Upon mutual agreement and execution of this contract, both parties — the Contractor and
+                                    <strong><t t-out="doc.partner_id.name"/></strong>
+                                    (hereinafter referred to as the
+                                    <strong>"Client"</strong> or <strong>"Second Party"</strong>) — shall be bound
+                                    by the terms, conditions, and obligations set forth herein.
+                                </p>
+                            </t>
+                        </div>
+
+                        <!-- ──────────────────────────────────────────
+                             ARTICLE 1: EQUIPMENT SCHEDULE (STATIC)
+                             ────────────────────────────────────────── -->
+                        <div class="article-title">
+                            <t t-if="is_ar">المادة 1 — جدول المعدات والأسعار</t>
+                            <t t-else="">Article 1 — Equipment Schedule and Pricing</t>
+                        </div>
+
+                        <table class="equip-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:5%">
+                                        <t t-if="is_ar">م</t><t t-else="">S.No</t>
+                                    </th>
+                                    <th style="width:28%">
+                                        <t t-if="is_ar">الوصف</t><t t-else="">Description</t>
+                                    </th>
+                                    <th style="width:17%">
+                                        <t t-if="is_ar">الموديل</t><t t-else="">Model</t>
+                                    </th>
+                                    <th style="width:5%">
+                                        <t t-if="is_ar">الكمية</t><t t-else="">Qty</t>
+                                    </th>
+                                    <th style="width:11%">BTU</th>
+                                    <th style="width:10%">CFM</th>
+                                    <th style="width:9%">kW</th>
+                                    <th style="width:8%">HP</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-set="seq" t-value="0"/>
+                                <t t-foreach="doc.order_line" t-as="line">
+
+                                    <!-- Section row (floor grouping) -->
+                                    <t t-if="line.display_type == 'line_section'">
+                                        <tr class="section-row">
+                                            <td colspan="8">
+                                                <t t-out="line.name"/>
+                                            </td>
+                                        </tr>
+                                        <t t-set="seq" t-value="0"/>
+                                    </t>
+
+                                    <!-- Note row -->
+                                    <t t-elif="line.display_type == 'line_note'">
+                                        <tr>
+                                            <td colspan="8" style="text-align:left; font-style:italic; font-size:8pt;">
+                                                <t t-out="line.name"/>
+                                            </td>
+                                        </tr>
+                                    </t>
+
+                                    <!-- Product row -->
+                                    <t t-elif="not line.display_type">
+                                        <t t-set="seq" t-value="seq + 1"/>
+                                        <tr>
+                                            <td><t t-out="seq"/></td>
+                                            <td class="desc-cell"><t t-out="line.name"/></td>
+                                            <td><t t-out="line.product_id.default_code or line.product_id.name or '—'"/></td>
+                                            <td><t t-out="int(line.product_uom_qty)"/></td>
+                                            <td><t t-out="'{:,.0f}'.format(line.x_line_btu or 0)"/></td>
+                                            <td><t t-out="'{:,.0f}'.format(line.x_line_cfm or 0)"/></td>
+                                            <td><t t-out="'{:,.2f}'.format(line.x_line_kw or 0)"/></td>
+                                            <td><t t-out="'{:,.2f}'.format(line.x_line_hp or 0)"/></td>
+                                        </tr>
+                                    </t>
+
+                                </t>
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="4" style="text-align:right;">
+                                        <t t-if="is_ar">إجماليات المشروع</t><t t-else="">PROJECT TOTALS</t>
+                                    </td>
+                                    <td><t t-out="'{:,.0f}'.format(doc.x_total_project_btu or 0)"/></td>
+                                    <td><t t-out="'{:,.0f}'.format(doc.x_total_project_cfm or 0)"/></td>
+                                    <td><t t-out="'{:,.2f}'.format(doc.x_total_project_kw or 0)"/></td>
+                                    <td><t t-out="'{:,.2f}'.format(doc.x_total_project_hp or 0)"/></td>
+                                </tr>
+                                <tr>
+                                    <td colspan="4" style="text-align:right;">
+                                        <t t-if="is_ar">إجمالي قيمة العقد</t><t t-else="">TOTAL CONTRACT VALUE</t>
+                                    </td>
+                                    <td colspan="4" style="text-align:center;">
+                                        <t t-out="doc.amount_total" t-options='{"widget": "monetary", "display_currency": doc.currency_id}'/>
+                                    </td>
+                                </tr>
+                            </tfoot>
+                        </table>
+
+                        <!-- ════════════════════════════════════════
+                             ARTICLES 2+ — DYNAMIC CLAUSES
+                             Rendered from hvac.contract.clause records.
+                             article_num starts at 2 (Article 1 is hardcoded above).
+                             ════════════════════════════════════════ -->
+
+                        <t t-set="article_num" t-value="1"/>
+
+                        <t t-foreach="clauses" t-as="clause">
+
+                            <!-- Page break before this article if configured -->
+                            <t t-if="clause.page_break_before or clause_index == 0">
+                                <div class="page-break"/>
+                            </t>
+
+                            <t t-set="article_num" t-value="article_num + 1"/>
+
+                            <!-- Article heading -->
+                            <div class="article-title">
+                                <t t-if="is_ar">
+                                    المادة <t t-out="article_num"/> —
+                                    <t t-if="clause.title_ar" t-out="clause.title_ar" t-options='{"widget": "html"}'/>
+                                    <t t-else="" t-out="clause.title" t-options='{"widget": "html"}'/>
+                                </t>
+                                <t t-else="">
+                                    Article <t t-out="article_num"/> —
+                                    <t t-out="clause.title" t-options='{"widget": "html"}'/>
+                                </t>
+                            </div>
+
+                            <!-- Preamble (optional introductory paragraph) -->
+                            <t t-if="is_ar and clause.preamble_ar">
+                                <div class="article-body">
+                                    <t t-out="clause.preamble_ar" t-options='{"widget": "html"}'/>
+                                </div>
+                            </t>
+                            <t t-elif="not is_ar and clause.preamble">
+                                <div class="article-body">
+                                    <t t-out="clause.preamble" t-options='{"widget": "html"}'/>
+                                </div>
+                            </t>
+
+                            <!-- Sub-clauses list -->
+                            <t t-if="clause.child_ids">
+                                <div class="article-body">
+                                    <ul>
+                                        <t t-foreach="clause.child_ids.sorted(key=lambda c: c.sequence)" t-as="child">
+                                            <li class="clause-item">
+                                                <t t-if="is_ar and child.title_ar">
+                                                    <t t-out="child.title_ar" t-options='{"widget": "html"}'/>
+                                                </t>
+                                                <t t-else="">
+                                                    <t t-out="child.title" t-options='{"widget": "html"}'/>
+                                                </t>
+                                            </li>
+                                        </t>
+                                    </ul>
+                                </div>
+                            </t>
+
+                        </t>
+
+                        <!-- ════════════════════════════════════════
+                             GOVERNING LAW
+                             ════════════════════════════════════════ -->
+                        <div class="governing-law">
+                            <t t-if="is_ar">
+                                يخضع هذا العقد ويُفسَّر وفقاً للقوانين والأنظمة المعمول بها في
+                                <strong>دولة الكويت</strong>. وتختص المحاكم المختصة في دولة الكويت
+                                بالنظر في أي نزاعات تنشأ عن هذا العقد أو تتعلق به.
+                            </t>
+                            <t t-else="">
+                                This contract shall be governed by and construed in accordance with the applicable laws
+                                and regulations of the <strong>State of Kuwait</strong>. Any disputes arising from or
+                                related to this contract shall be subject to the jurisdiction of the competent courts of
+                                the State of Kuwait.
+                            </t>
+                        </div>
+
+                        <!-- ════════════════════════════════════════
+                             SIGNATURE BLOCK
+                             ════════════════════════════════════════ -->
+                        <div class="signature-block">
+                            <table class="signature-table">
+                                <tr>
+                                    <td>
+                                        <div class="sig-label">
+                                            <t t-if="is_ar">الطرف الأول (المقاول)</t>
+                                            <t t-else="">First Party (Contractor)</t>
+                                        </div>
+                                        <br/>
+                                        <strong><t t-out="doc.company_id.name"/></strong>
+                                        <div class="sig-line">
+                                            <t t-if="is_ar">التوقيع المعتمد والختم</t>
+                                            <t t-else="">Authorized Signature &amp; Stamp</t>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="sig-label">
+                                            <t t-if="is_ar">الطرف الثاني (العميل)</t>
+                                            <t t-else="">Second Party (Client)</t>
+                                        </div>
+                                        <br/>
+                                        <strong><t t-out="doc.partner_id.name"/></strong>
+                                        <div class="sig-line">
+                                            <t t-if="is_ar">التوقيع</t>
+                                            <t t-else="">Signature</t>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+
+                    </div><!-- /hvac-contract -->
+
+                </t><!-- /external_layout -->
+            </t><!-- /foreach docs -->
+        </t><!-- /html_container -->
+    </template>
+
+</odoo>

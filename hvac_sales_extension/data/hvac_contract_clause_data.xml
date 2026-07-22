@@ -1,0 +1,462 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- ARTICLE 2: Temperature Guarantee                                  -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <record id="hvac_clause_art2" model="hvac.contract.clause">
+            <field name="clause_ref">Temperature Guarantee</field>
+            <field name="title">Temperature Guarantee</field>
+            <field name="title_ar">ضمان درجة الحرارة</field>
+            <field name="preamble">We guarantee that the temperature inside the air-conditioned spaces will be (24°C / 75°F) when the outside temperature is (48°C / 118.4°F) in summer, provided that roofs, walls, and windows are insulated according to MEW specifications.</field>
+            <field name="preamble_ar">نضمن أن تكون درجة الحرارة داخل الأماكن المكيفة (24 مئوية / 75 فهرنهايت) عندما تكون درجة الحرارة الخارجية (48 مئوية / 118.4 فهرنهايت) صيفا، بشرط أن تكون الأسقف والجدران والشبابيك معزولة حسب مواصفات وزارة الكهرباء والماء.</field>
+            <field name="sequence">20</field>
+            <field name="is_parent" eval="True"/>
+        </record>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- ARTICLE 3: Warranty and Guarantee                                 -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <record id="hvac_clause_art3" model="hvac.contract.clause">
+            <field name="clause_ref">Warranty and Guarantee</field>
+            <field name="title">Warranty and Guarantee</field>
+            <field name="title_ar">الكفالة والضمان</field>
+            <field name="preamble">The First Party guarantees all equipment under the contract against manufacturing defects, except the compressor, for one year, including comprehensive maintenance and spare parts. The compressor is guaranteed for five years from the date of operation. This warranty is not valid in the following cases:</field>
+            <field name="preamble_ar">يضمن الطرف الأول جميع الأجهزة محل العقد ضد العيوب المصنعية ما عدا الكمبريسور لمدة سنة، وتكون صيانة شاملة إضافة لقطع الغيار. الكمبريسور يكون مكفول لمدة خمس سنوات من تاريخ التشغيل، ولا يكون هذا الضمان ساريا في الحالات التالية:</field>
+            <field name="sequence">30</field>
+            <field name="is_parent" eval="True"/>
+        </record>
+        <record id="hvac_clause_art3_1" model="hvac.contract.clause">
+            <field name="clause_ref">Warranty and Guarantee - 1</field>
+            <field name="title">If the damage is caused by misuse.</field>
+            <field name="title_ar">إذا كان التلف ناتج من سوء الاستخدام.</field>
+            <field name="sequence">1</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art3"/>
+        </record>
+        <record id="hvac_clause_art3_2" model="hvac.contract.clause">
+            <field name="clause_ref">Warranty and Guarantee - 2</field>
+            <field name="title">If repaired by unauthorized persons.</field>
+            <field name="title_ar">إذا تم الإصلاح بواسطة أشخاص غير معتمدين.</field>
+            <field name="sequence">2</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art3"/>
+        </record>
+        <record id="hvac_clause_art3_3" model="hvac.contract.clause">
+            <field name="clause_ref">Warranty and Guarantee - 3</field>
+            <field name="title">Electrical voltage fluctuations, fire, floods, or any factors beyond our control.</field>
+            <field name="title_ar">اختلال الجهد الكهربائي، أو الحريق أو الفيضانات أو أي عوامل خارجة عن إرادتنا.</field>
+            <field name="sequence">3</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art3"/>
+        </record>
+        <record id="hvac_clause_art3_4" model="hvac.contract.clause">
+            <field name="clause_ref">Warranty and Guarantee - 4</field>
+            <field name="title">Failure to pay the full contract value and customer signing the operation model.</field>
+            <field name="title_ar">عدم سداد قيمة العقد بالكامل وتوقيع العميل على نموذج التشغيل.</field>
+            <field name="sequence">4</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art3"/>
+        </record>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- ARTICLE 4: Execution Mechanism and Payments                       -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <record id="hvac_clause_art4" model="hvac.contract.clause">
+            <field name="clause_ref">Execution Mechanism and Payments</field>
+            <field name="title">Execution Mechanism and Payments</field>
+            <field name="title_ar">آلية التنفيذ والدفعات</field>
+            <field name="preamble">Both parties agreed that the Second Party shall pay the agreed amount in four installments based on the progress of civil works on site, as follows:</field>
+            <field name="preamble_ar">اتفق الطرفان على أن يكون التعاقد مع الطرف الثاني على سداد المبلغ المتفق عليه على أربع دفعات يتم السداد حسب تقدم الأعمال المدنية بالموقع، حسب الدفعات الآتية:</field>
+            <field name="sequence">40</field>
+            <field name="is_parent" eval="True"/>
+        </record>
+        <record id="hvac_clause_art4_1" model="hvac.contract.clause">
+            <field name="clause_ref">Execution Mechanism and Payments - 1</field>
+            <field name="title">15% advance payment upon signing the contract.</field>
+            <field name="title_ar">15% مقدم عند توقيع العقد.</field>
+            <field name="sequence">1</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art4"/>
+        </record>
+        <record id="hvac_clause_art4_2" model="hvac.contract.clause">
+            <field name="clause_ref">Execution Mechanism and Payments - 2</field>
+            <field name="title">35% upon delivery of air ducts. (Execution within max 35 days from site readiness).</field>
+            <field name="title_ar">35% عند توريد مجاري الهواء (الدكت). (يتم التنفيذ خلال موعد أقصاه 35 يوم من تاريخ جاهزية الموقع للعمل).</field>
+            <field name="sequence">2</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art4"/>
+        </record>
+        <record id="hvac_clause_art4_3" model="hvac.contract.clause">
+            <field name="clause_ref">Execution Mechanism and Payments - 3</field>
+            <field name="title">15% upon delivery of diffusers and indoor units. (Execution within max 35 days from site readiness).</field>
+            <field name="title_ar">15% عند توريد الدفيوزرات والماكينات الداخلية. (يتم التنفيذ خلال موعد أقصاه 35 يوم من تاريخ جاهزية الموقع للعمل).</field>
+            <field name="sequence">3</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art4"/>
+        </record>
+        <record id="hvac_clause_art4_4" model="hvac.contract.clause">
+            <field name="clause_ref">Execution Mechanism and Payments - 4</field>
+            <field name="title">35% final payment upon requesting delivery of machines to the site, within max 4 weeks.</field>
+            <field name="title_ar">35% الدفعة الأخيرة من تاريخ طلب توريد المكائن للموقع وفي مدة أقصاها 4 أسابيع.</field>
+            <field name="sequence">4</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art4"/>
+        </record>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- ARTICLE 5: Contract Execution Duration                            -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <record id="hvac_clause_art5" model="hvac.contract.clause">
+            <field name="clause_ref">Contract Execution Duration</field>
+            <field name="title">Contract Execution Duration</field>
+            <field name="title_ar">مدة تنفيذ العقد</field>
+            <field name="preamble">This offer becomes a final binding contract for both parties and is valid for execution in all its stages within a maximum period of 18 months from the date of signing.</field>
+            <field name="preamble_ar">يعتبر هذا العرض وأصبح عقدا نهائيا ملزما للطرفين ويعتبر العقد ساريا للتنفيذ في كافة مراحله المذكورة وذلك خلال مدة أقصاها 18 شهر من تاريخ توقيع هذا العقد.</field>
+            <field name="sequence">50</field>
+            <field name="is_parent" eval="True"/>
+        </record>
+        <record id="hvac_clause_art5_1" model="hvac.contract.clause">
+            <field name="clause_ref">Contract Execution Duration - 1</field>
+            <field name="title">In case of delay in executing works beyond the agreed period, the First Party has the right to amend prices.</field>
+            <field name="title_ar">عند التأخير في تنفيذ الأعمال عن المدة المتفق عليها يحق للطرف الأول تعديل الأسعار.</field>
+            <field name="sequence">1</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art5"/>
+        </record>
+        <record id="hvac_clause_art5_2" model="hvac.contract.clause">
+            <field name="clause_ref">Contract Execution Duration - 2</field>
+            <field name="title">Failure to deliver machines and execute works on time gives the right to claim against the company, impose fines, and account for material losses.</field>
+            <field name="title_ar">عدم توريد المكائن وتنفيذ الأعمال في الوقت المحدد يعطي الحق بمطالبة الشركة وتغريمها وإحصاء الخسائر المادية.</field>
+            <field name="sequence">2</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art5"/>
+        </record>
+        <record id="hvac_clause_art5_3" model="hvac.contract.clause">
+            <field name="clause_ref">Contract Execution Duration - 3</field>
+            <field name="title">The first payment is considered the advance payment upon signing the contract, for starting works, and the Second Party has no right to refund or dispute it for any reason.</field>
+            <field name="title_ar">تعتبر الدفعة الأولى من قيمة العقد الدفعة المقدمة بمجرد توقيع العقد، نظير بدء الأعمال ولا يحق للطرف الثاني استردادها أو المنازعة عليها لأي سبب كان.</field>
+            <field name="sequence">3</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art5"/>
+        </record>
+        <record id="hvac_clause_art5_4" model="hvac.contract.clause">
+            <field name="clause_ref">Contract Execution Duration - 4</field>
+            <field name="title">The Second Party has no right to reduce the contract value by more than 25% when making a variation order.</field>
+            <field name="title_ar">لا يحق للطرف الثاني تخفيض قيمة العقد بنسبة تتجاوز 25% عند القيام بأمر تعديلي.</field>
+            <field name="sequence">4</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art5"/>
+        </record>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- ARTICLE 6: Technical Specifications                               -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <record id="hvac_clause_art6" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications</field>
+            <field name="title">Technical Specifications for Installation</field>
+            <field name="title_ar">المواصفات الفنية للتركيب</field>
+            <field name="sequence">60</field>
+            <field name="is_parent" eval="True"/>
+        </record>
+        <record id="hvac_clause_art6_1" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 1</field>
+            <field name="title">Engineering design for duct routing and air distribution by a specialized engineer.</field>
+            <field name="title_ar">عمل تصميم هندسي لمسارات الدكت وتوزيع الهواء من قبل مهندس متخصص.</field>
+            <field name="sequence">1</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_2" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 2</field>
+            <field name="title">Supply and installation of galvanized sheet metal air ducts according to SMACNA specifications.</field>
+            <field name="title_ar">توريد وتركيب مجاري الهواء من الصاج المجلفن حسب المواصفات (SMACNA).</field>
+            <field name="sequence">2</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_3" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 3</field>
+            <field name="title">Providing air ducts with slip joints and special mastic to prevent leakage.</field>
+            <field name="title_ar">تزويد مجاري الهواء بالفواصل (SLIP JOINT) ومعجون خاص لمنع التسريب.</field>
+            <field name="sequence">3</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_4" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 4</field>
+            <field name="title">Installing internal insulation (1 inch thick, density 12 kg/m3) and external insulation (density 16 kg/m3).</field>
+            <field name="title_ar">تركيب العازل من الداخل سماكة (1 بوصة) كثافة 12 كجم/م3، ومن الخارج كثافة 16 كجم/م3.</field>
+            <field name="sequence">4</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_5" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 5</field>
+            <field name="title">Extending PVC pipes for water drainage from the machines.</field>
+            <field name="title_ar">تمديد أنابيب (PVC) لتصريف المياه من المكائن.</field>
+            <field name="sequence">5</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_6" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 6</field>
+            <field name="title">Connecting electrical wires from the control switch.</field>
+            <field name="title_ar">توصيل أسلاك الكهرباء من مفتاح التحكم.</field>
+            <field name="sequence">6</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_7" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 7</field>
+            <field name="title">Installing diffusers in an engineering manner to ensure proper distribution.</field>
+            <field name="title_ar">تركيب دفيوزر بطريقة هندسية لضمان التوزيع الصحيح.</field>
+            <field name="sequence">7</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_8" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 8</field>
+            <field name="title">Supply and installation of Honeywell thermostats.</field>
+            <field name="title_ar">توريد وتركيب ثرموستات (HONEYWELL).</field>
+            <field name="sequence">8</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_9" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 9</field>
+            <field name="title">Special angles to support the duct (2.5 x 2.5 x 2.5 cm).</field>
+            <field name="title_ar">زوايا خاصة لتحمل الدكت (2.5 * 2.5 * 2.5 سم).</field>
+            <field name="sequence">9</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_10" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 10</field>
+            <field name="title">Installing round duct elbows at 90 degrees to ensure smooth airflow.</field>
+            <field name="title_ar">تركيب دكت دائري بزاوية 90 درجة لضمان سهولة مرور الهواء.</field>
+            <field name="sequence">10</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_11" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 11</field>
+            <field name="title">Rust-resistant iron bases for A/C units.</field>
+            <field name="title_ar">قواعد حديدية مقاومة للصدأ لوحدات التكييف.</field>
+            <field name="sequence">11</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_12" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 12</field>
+            <field name="title">Installing rubber pads under the bases to isolate vibration.</field>
+            <field name="title_ar">تركيب ربل تحت القواعد لعزل الاهتزاز.</field>
+            <field name="sequence">12</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_13" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 13</field>
+            <field name="title">Installing flexible canvas connections between the machine and duct.</field>
+            <field name="title_ar">تركيب وصلة مرنة (CANVAS) بين الماكينة والدكت لمنع الاهتزاز.</field>
+            <field name="sequence">13</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_14" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 14</field>
+            <field name="title">Supply and installation of all types of aluminum air grilles.</field>
+            <field name="title_ar">توريد وتركيب كافة أنواع فتحات الهواء من الالمنيوم.</field>
+            <field name="sequence">14</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_15" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 15</field>
+            <field name="title">Providing air ducts with internal acoustic lining to prevent air noise.</field>
+            <field name="title_ar">تزويد مجاري الهواء بعازل داخلي لمنع صوت الهواء.</field>
+            <field name="sequence">15</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_16" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 16</field>
+            <field name="title">Leaving a clearance of 10 to 15 cm for return air safety.</field>
+            <field name="title_ar">ترك مسافة (10 إلى 15 سم) لسلامة الهواء الراجع.</field>
+            <field name="sequence">16</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_17" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 17</field>
+            <field name="title">Installing copper pipes that withstand high gas pressure.</field>
+            <field name="title_ar">تركيب أنابيب النحاس التي تتحمل ضغط الغاز العالي.</field>
+            <field name="sequence">17</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_18" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 18</field>
+            <field name="title">Extending copper pipes inside insulation to ensure their safety.</field>
+            <field name="title_ar">تمديد أنابيب النحاس داخل عوازل لضمان سلامتها.</field>
+            <field name="sequence">18</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_19" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 19</field>
+            <field name="title">Extending water drain pipe from the indoor unit for a distance not exceeding 2 meters.</field>
+            <field name="title_ar">تمديد ماسورة تصريف المياه من الوحدة الداخلية لمسافة لا تتجاوز 2 متر.</field>
+            <field name="sequence">19</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_20" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 20</field>
+            <field name="title">Electrical connections are made according to the execution plan.</field>
+            <field name="title_ar">التوصيلات الكهربائية تتم حسب المخطط التنفيذي.</field>
+            <field name="sequence">20</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+        <record id="hvac_clause_art6_21" model="hvac.contract.clause">
+            <field name="clause_ref">Technical Specifications - 21</field>
+            <field name="title">Installing guide vanes as needed.</field>
+            <field name="title_ar">تركيب ريش التوجيه حسب الاحتياج.</field>
+            <field name="sequence">21</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art6"/>
+        </record>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- ARTICLE 7: Modification Conditions                                -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <record id="hvac_clause_art7" model="hvac.contract.clause">
+            <field name="clause_ref">Modification Conditions</field>
+            <field name="title">Modification Conditions</field>
+            <field name="title_ar">شروط التعديل</field>
+            <field name="preamble">In case the Second Party wishes to make any modifications to the execution plans, the following shall be considered:</field>
+            <field name="preamble_ar">في حال رغبة الطرف الثاني باجراء اي تعديل على المخططات التنفيذية يتم مراعاة الآتي:</field>
+            <field name="sequence">70</field>
+            <field name="is_parent" eval="True"/>
+        </record>
+        <record id="hvac_clause_art7_1" model="hvac.contract.clause">
+            <field name="clause_ref">Modification Conditions - 1</field>
+            <field name="title">Studying the feasibility of the modification on site.</field>
+            <field name="title_ar">دراسة قابلية التعديل على أرض الواقع.</field>
+            <field name="sequence">1</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art7"/>
+        </record>
+        <record id="hvac_clause_art7_2" model="hvac.contract.clause">
+            <field name="clause_ref">Modification Conditions - 2</field>
+            <field name="title">Approval of the financial value of the modifications, if any.</field>
+            <field name="title_ar">الموافقة على القيمة المادية للتعديلات إن وجدت.</field>
+            <field name="sequence">2</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art7"/>
+        </record>
+        <record id="hvac_clause_art7_3" model="hvac.contract.clause">
+            <field name="clause_ref">Modification Conditions - 3</field>
+            <field name="title">Considering the time duration required for the modifications.</field>
+            <field name="title_ar">مراعاة المدة الزمنية للتعديلات.</field>
+            <field name="sequence">3</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art7"/>
+        </record>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- ARTICLE 8: Works Not Included                                     -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <record id="hvac_clause_art8" model="hvac.contract.clause">
+            <field name="clause_ref">Works Not Included</field>
+            <field name="title">Works Not Included in the Contract</field>
+            <field name="title_ar">الاعمال الغير مشمولة بالعقد</field>
+            <field name="sequence">80</field>
+            <field name="is_parent" eval="True"/>
+        </record>
+        <record id="hvac_clause_art8_1" model="hvac.contract.clause">
+            <field name="clause_ref">Works Not Included - 1</field>
+            <field name="title">Civil works including building, breaking, and making ventilation openings.</field>
+            <field name="title_ar">الاعمال المدنية من بناء وتكسير وعمل فتحات للتهوية.</field>
+            <field name="sequence">1</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art8"/>
+        </record>
+        <record id="hvac_clause_art8_2" model="hvac.contract.clause">
+            <field name="clause_ref">Works Not Included - 2</field>
+            <field name="title">Securing a water drainage point near the unit.</field>
+            <field name="title_ar">تأمين نقطة لتصريف المياه بالقرب من الوحدة.</field>
+            <field name="sequence">2</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art8"/>
+        </record>
+        <record id="hvac_clause_art8_3" model="hvac.contract.clause">
+            <field name="clause_ref">Works Not Included - 3</field>
+            <field name="title">Electrical distribution boards for the A/C.</field>
+            <field name="title_ar">لوحات توزيع الكهرباء الخاصة بالتكييف.</field>
+            <field name="sequence">3</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art8"/>
+        </record>
+        <record id="hvac_clause_art8_4" model="hvac.contract.clause">
+            <field name="clause_ref">Works Not Included - 4</field>
+            <field name="title">Ventilation works for bathrooms and kitchens.</field>
+            <field name="title_ar">اعمال التهوية للحمامات والمطابخ.</field>
+            <field name="sequence">4</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art8"/>
+        </record>
+        <record id="hvac_clause_art8_5" model="hvac.contract.clause">
+            <field name="clause_ref">Works Not Included - 5</field>
+            <field name="title">Compliance with MEW regulations for building and thermal insulation.</field>
+            <field name="title_ar">الالتزام بلوائح وزارة الكهرباء والماء للبناء والعازل الحراري.</field>
+            <field name="sequence">5</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art8"/>
+        </record>
+        <record id="hvac_clause_art8_6" model="hvac.contract.clause">
+            <field name="clause_ref">Works Not Included - 6</field>
+            <field name="title">Providing necessary security on site to protect equipment.</field>
+            <field name="title_ar">توفير الحراسة اللازمة بالموقع للحفاظ على المعدات.</field>
+            <field name="sequence">6</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art8"/>
+        </record>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- ARTICLE 9: Special Conditions                                     -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <record id="hvac_clause_art9" model="hvac.contract.clause">
+            <field name="clause_ref">Special Conditions</field>
+            <field name="title">Special Conditions</field>
+            <field name="title_ar">شروط خاصة</field>
+            <field name="sequence">90</field>
+            <field name="is_parent" eval="True"/>
+        </record>
+        <record id="hvac_clause_art9_1" model="hvac.contract.clause">
+            <field name="clause_ref">Special Conditions - 1</field>
+            <field name="title">In case of any additional requests, they will be agreed upon later.</field>
+            <field name="title_ar">في حال وجود اي طلبات اضافية يتم الاتفاق عليها لاحقا.</field>
+            <field name="sequence">1</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art9"/>
+        </record>
+        <record id="hvac_clause_art9_2" model="hvac.contract.clause">
+            <field name="clause_ref">Special Conditions - 2</field>
+            <field name="title">Full payment of the contract value is a prerequisite for handing over the works.</field>
+            <field name="title_ar">سداد قيمة العقد بالكامل شرط أساسي لتسليم الأعمال.</field>
+            <field name="sequence">2</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art9"/>
+        </record>
+        <record id="hvac_clause_art9_3" model="hvac.contract.clause">
+            <field name="clause_ref">Special Conditions - 3</field>
+            <field name="title">Payment is by certified check, cash, or bank transfer only.</field>
+            <field name="title_ar">الدفع عن طريق شيك مصدق أو كاش أو تحويل بنكي فقط.</field>
+            <field name="sequence">3</field>
+            <field name="is_parent" eval="False"/>
+            <field name="parent_id" ref="hvac_clause_art9"/>
+        </record>
+    </data>
+</odoo>
