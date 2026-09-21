@@ -9,12 +9,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ValidateAddonTests(unittest.TestCase):
-    def test_meta_security_uses_odoo19_sales_category(self):
+    def test_meta_security_uses_odoo19_privilege_model(self):
         security = (ROOT / "crm_meta_lead_ads" / "security" / "meta_security.xml").read_text(
             encoding="utf-8"
         )
+        self.assertIn('model="res.groups.privilege"', security)
         self.assertIn('ref="base.module_category_sales"', security)
-        self.assertNotIn('ref="base.module_category_sales_crm"', security)
+        self.assertIn('name="privilege_id" ref="crm_meta_lead_ads.res_groups_privilege_meta_leads"', security)
+        self.assertEqual(security.count('name="category_id"'), 1)
 
     def test_refresh_deployer_atomically_installs_new_version_for_root(self):
         with tempfile.TemporaryDirectory() as tmp:
