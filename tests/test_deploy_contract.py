@@ -17,6 +17,12 @@ class DeployContractTests(unittest.TestCase):
         self.assertIn("systemctl is-active", script)
         self.assertIn("rollback", script)
 
+    def test_server_script_only_updates_the_production_database(self):
+        script = (ROOT / "deploy" / "deploy-inverse-odoo").read_text(encoding="utf-8")
+        self.assertIn('readonly PRODUCTION_DATABASES=("inverse_elite")', script)
+        self.assertIn('for database in "${PRODUCTION_DATABASES[@]}"; do', script)
+        self.assertNotIn("SELECT datname FROM pg_database", script)
+
     def test_workflow_uses_pinned_host_key_and_private_key_secret(self):
         workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
         self.assertIn("secrets.SSH_PRIVATE_KEY", workflow)

@@ -10,6 +10,7 @@ readonly ODOO_BIN="/opt/odoo/odoo19/odoo-bin"
 readonly ODOO_CONFIG="/etc/odoo19.conf"
 readonly ODOO_SERVICE="odoo19.service"
 readonly LOCK_FILE="/run/lock/deploy-inverse-odoo.lock"
+readonly PRODUCTION_DATABASES=("inverse_elite")
 
 REVISION="${1:-}"
 if [[ ! "$REVISION" =~ ^[0-9a-f]{40}$ ]]; then
@@ -62,12 +63,8 @@ if [[ -d "$TARGET_MODULE" ]]; then
   tar -czf "${backup_dir}/${MODULE_NAME}.tar.gz" -C "$(dirname "$TARGET_MODULE")" "$MODULE_NAME"
 fi
 
-mapfile -t databases < <(
-  runuser -u postgres -- psql -Atqc \
-    "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname"
-)
 installed_databases=()
-for database in "${databases[@]}"; do
+for database in "${PRODUCTION_DATABASES[@]}"; do
   if runuser -u postgres -- psql -d "$database" -Atqc \
       "SELECT 1 FROM ir_module_module WHERE name='${MODULE_NAME}' AND state='installed' LIMIT 1" \
       2>/dev/null | grep -qx 1; then
