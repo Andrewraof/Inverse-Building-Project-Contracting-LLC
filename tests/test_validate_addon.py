@@ -5,8 +5,17 @@ from pathlib import Path
 
 from deploy.validate_addon import ValidationError, refresh_deployer, validate_addon
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 class ValidateAddonTests(unittest.TestCase):
+    def test_meta_security_uses_odoo19_sales_category(self):
+        security = (ROOT / "crm_meta_lead_ads" / "security" / "meta_security.xml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('ref="base.module_category_sales"', security)
+        self.assertNotIn('ref="base.module_category_sales_crm"', security)
+
     def test_refresh_deployer_atomically_installs_new_version_for_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
