@@ -72,7 +72,7 @@ for database in "${databases[@]}"; do
       "SELECT 1 FROM ir_module_module WHERE name='${MODULE_NAME}' AND state='installed' LIMIT 1" \
       2>/dev/null | grep -qx 1; then
     installed_databases+=("$database")
-    runuser -u postgres -- pg_dump -Fc -f "${backup_dir}/${database}.dump" "$database"
+    runuser -u postgres -- pg_dump -Fc "$database" > "${backup_dir}/${database}.dump"
   fi
 done
 
@@ -95,4 +95,3 @@ systemctl is-active --quiet "$ODOO_SERVICE"
 trap - ERR
 echo "Deployment complete: ${REVISION}"
 echo "Backup directory: ${backup_dir}"
-

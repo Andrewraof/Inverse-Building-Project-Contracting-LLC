@@ -12,6 +12,8 @@ class DeployContractTests(unittest.TestCase):
         self.assertIn("flock", script)
         self.assertIn("validate_addon.py", script)
         self.assertIn("pg_dump", script)
+        self.assertNotIn('pg_dump -Fc -f', script)
+        self.assertIn('pg_dump -Fc "$database" >', script)
         self.assertIn("systemctl is-active", script)
         self.assertIn("rollback", script)
 
