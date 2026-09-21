@@ -1,11 +1,38 @@
 import tempfile
 import unittest
+import os
 from pathlib import Path
 
-from deploy.validate_addon import ValidationError, validate_addon
+from deploy.validate_addon import ValidationError, refresh_deployer, validate_addon
 
 
 class ValidateAddonTests(unittest.TestCase):
+    def test_refresh_deployer_atomically_installs_new_version_for_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "deploy-inverse-odoo.new"
+            target = root / "deploy-inverse-odoo"
+            source.write_text("#!/bin/sh\necho new\n", encoding="utf-8")
+            target.write_text("#!/bin/sh\necho old\n", encoding="utf-8")
+
+            changed = refresh_deployer(source, target, effective_uid=0)
+
+            self.assertTrue(changed)
+            self.assertEqual(target.read_text(encoding="utf-8"), source.read_text(encoding="utf-8"))
+            if os.name != "nt":
+                self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+
+    def test_refresh_deployer_does_nothing_without_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "new"
+            target = root / "installed"
+            source.write_text("new", encoding="utf-8")
+            target.write_text("old", encoding="utf-8")
+
+            self.assertFalse(refresh_deployer(source, target, effective_uid=1000))
+            self.assertEqual(target.read_text(encoding="utf-8"), "old")
+
     def make_addon(self, root: Path) -> Path:
         addon = root / "hvac_sales_extension"
         addon.mkdir()

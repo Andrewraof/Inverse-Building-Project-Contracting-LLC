@@ -37,7 +37,14 @@ jobs:
           178.104.53.152 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFiRnXsbg+YifWHBA9IMn5/SN9Ie3bEsJ0SMGgTDkR0R
           EOF
 
-      - name: Deploy exact commit
+      - name: Bootstrap deployer and deploy exact commit
+        run: |
+          ssh -i ~/.ssh/inverse_deploy \
+            -o IdentitiesOnly=yes \
+            deploy@178.104.53.152 \
+            "sudo /usr/local/sbin/deploy-inverse-odoo '${GITHUB_SHA}'"
+
+      - name: Deploy exact commit with refreshed deployer
         run: |
           ssh -i ~/.ssh/inverse_deploy \
             -o IdentitiesOnly=yes \

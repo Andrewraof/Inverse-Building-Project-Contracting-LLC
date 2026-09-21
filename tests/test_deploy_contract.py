@@ -16,6 +16,8 @@ class DeployContractTests(unittest.TestCase):
 
         workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
         self.assertIn("deploy/validate_addon.py crm_meta_lead_ads", workflow)
+        self.assertIn("Bootstrap deployer and deploy exact commit", workflow)
+        self.assertIn("Deploy exact commit with refreshed deployer", workflow)
 
     def test_server_script_has_required_safety_gates(self):
         script = (ROOT / "deploy" / "deploy-inverse-odoo").read_text(encoding="utf-8")
