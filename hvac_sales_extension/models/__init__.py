@@ -1,4 +1,5 @@
 from . import hvac_transaction_type
+from . import crm_lead
 from . import hvac_brand
 from . import hvac_gas_type
 from . import hvac_contract_clause

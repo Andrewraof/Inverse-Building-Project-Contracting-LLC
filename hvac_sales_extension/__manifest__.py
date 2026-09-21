@@ -1,6 +1,6 @@
 {
     'name': 'HVAC Sales Extension (Inverse Building Project Contracting LLC — Dubai)',
-    'version': '19.0.4.0.1',
+    'version': '19.0.4.1.0',
     'category': 'Sales',
     'summary': 'HVAC cooling load, dynamic bilingual contract clauses, language-selection wizard, EN/AR PDF reports — Dubai fork for Inverse Building Project Contracting LLC',
     'description': """
@@ -19,6 +19,7 @@
     """,
     'author': 'Antigravity',
     'depends': [
+        'crm',
         'sale_management',
         'product',
     ],
