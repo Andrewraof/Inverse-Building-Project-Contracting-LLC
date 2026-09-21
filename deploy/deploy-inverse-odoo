@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 readonly REPOSITORY_URL="https://github.com/Andrewraof/Inverse-Building-Project-Contracting-LLC.git"
 readonly MODULE_NAMES=("hvac_sales_extension" "crm_meta_lead_ads")
+readonly AUTO_INSTALL_MODULES=("crm_meta_lead_ads")
 readonly TARGET_ROOT="/opt/odoo/custom-addons/boq-budget"
 readonly RELEASE_ROOT="/var/lib/odoo-deploy/inverse-building"
 readonly BACKUP_ROOT="/var/backups/odoo-deploy"
@@ -69,14 +70,20 @@ for module_name in "${MODULE_NAMES[@]}"; do
   fi
 done
 
-installed_updates=()
+module_operations=()
 for database in "${PRODUCTION_DATABASES[@]}"; do
   database_needs_backup=0
   for module_name in "${MODULE_NAMES[@]}"; do
+    operation_mode=""
     if runuser -u postgres -- psql -d "$database" -Atqc \
         "SELECT 1 FROM ir_module_module WHERE name='${module_name}' AND state='installed' LIMIT 1" \
         2>/dev/null | grep -qx 1; then
-      installed_updates+=("${database}:${module_name}")
+      operation_mode="update"
+    elif [[ " ${AUTO_INSTALL_MODULES[*]} " == *" ${module_name} "* ]]; then
+      operation_mode="install"
+    fi
+    if [[ -n "$operation_mode" ]]; then
+      module_operations+=("${database}:${operation_mode}:${module_name}")
       database_needs_backup=1
     fi
   done
@@ -96,11 +103,18 @@ files_changed=1
 
 systemctl stop "$ODOO_SERVICE"
 service_stopped=1
-for update in "${installed_updates[@]}"; do
-  database="${update%%:*}"
-  module_name="${update#*:}"
-  timeout 20m runuser -u odoo -- /usr/bin/python3 "$ODOO_BIN" \
-    -c "$ODOO_CONFIG" -d "$database" -u "$module_name" --stop-after-init --no-http
+for operation in "${module_operations[@]}"; do
+  database="${operation%%:*}"
+  remainder="${operation#*:}"
+  operation_mode="${remainder%%:*}"
+  module_name="${remainder#*:}"
+  if [[ "$operation_mode" == "install" ]]; then
+    timeout 20m runuser -u odoo -- /usr/bin/python3 "$ODOO_BIN" \
+      -c "$ODOO_CONFIG" -d "$database" -i "$module_name" --without-demo=all --stop-after-init --no-http
+  else
+    timeout 20m runuser -u odoo -- /usr/bin/python3 "$ODOO_BIN" \
+      -c "$ODOO_CONFIG" -d "$database" -u "$module_name" --stop-after-init --no-http
+  fi
 done
 systemctl start "$ODOO_SERVICE"
 service_stopped=0

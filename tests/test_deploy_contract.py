@@ -12,7 +12,10 @@ class DeployContractTests(unittest.TestCase):
             'readonly MODULE_NAMES=("hvac_sales_extension" "crm_meta_lead_ads")',
             script,
         )
+        self.assertIn('readonly AUTO_INSTALL_MODULES=("crm_meta_lead_ads")', script)
         self.assertIn('for module_name in "${MODULE_NAMES[@]}"; do', script)
+        self.assertIn('operation_mode="install"', script)
+        self.assertIn('-i "$module_name"', script)
 
         workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
         self.assertIn("deploy/validate_addon.py crm_meta_lead_ads", workflow)
