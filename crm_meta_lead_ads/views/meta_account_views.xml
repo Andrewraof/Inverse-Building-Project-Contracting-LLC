@@ -1,0 +1,19 @@
+<odoo>
+    <record id="view_meta_account_list" model="ir.ui.view">
+        <field name="name">meta.account.list</field><field name="model">meta.account</field>
+        <field name="arch" type="xml"><list><field name="name"/><field name="connection_type"/><field name="company_id" groups="base.group_multi_company"/><field name="state"/><field name="last_connected_at"/><field name="token_expires_at"/></list></field>
+    </record>
+    <record id="view_meta_account_form" model="ir.ui.view">
+        <field name="name">meta.account.form</field><field name="model">meta.account</field>
+        <field name="arch" type="xml"><form string="Meta Account">
+            <header><button name="action_test_connection" type="object" string="Test Connection" class="btn-primary"/><button name="action_disconnect" type="object" string="Disconnect" invisible="state == 'disconnected'"/></header>
+            <sheet><group><group><field name="name"/><field name="connection_type"/><field name="company_id" groups="base.group_multi_company"/><field name="meta_user_id" readonly="1"/></group><group><field name="state" readonly="1"/><field name="last_connected_at" readonly="1"/><field name="token_expires_at" readonly="1"/><field name="error_message" readonly="1"/></group></group>
+            <notebook>
+                <page string="Credentials" groups="base.group_system"><group><field name="app_id"/><field name="app_secret" password="True"/><field name="user_access_token" password="True"/></group></page>
+                <page string="Webhook Endpoints"><group><field name="webhook_url" readonly="1"/><field name="deletion_url" readonly="1"/><field name="webhook_key" readonly="1"/></group></page>
+                <page string="Pages"><field name="page_ids"><list editable="bottom"><field name="name"/><field name="meta_page_id"/><field name="page_access_token" password="True" groups="base.group_system"/><field name="sync_enabled"/><field name="subscribed" readonly="1"/></list></field></page>
+            </notebook></sheet>
+        </form></field>
+    </record>
+    <record id="action_meta_account" model="ir.actions.act_window"><field name="name">Meta Accounts</field><field name="res_model">meta.account</field><field name="view_mode">list,form</field></record>
+</odoo>

@@ -1,0 +1,14 @@
+<odoo noupdate="1">
+    <record id="ir_cron_process_meta_lead_queue" model="ir.cron">
+        <field name="name">Meta Lead Ads: Process Queue</field>
+        <field name="model_id" ref="model_meta_lead_queue"/>
+        <field name="state">code</field><field name="code">model._cron_process_queue()</field>
+        <field name="interval_number">1</field><field name="interval_type">minutes</field><field name="active">True</field>
+    </record>
+    <record id="ir_cron_poll_meta_leads" model="ir.cron">
+        <field name="name">Meta Lead Ads: Recovery Polling</field>
+        <field name="model_id" ref="model_meta_lead_queue"/>
+        <field name="state">code</field><field name="code">model._cron_poll_meta_leads()</field>
+        <field name="interval_number">1</field><field name="interval_type">hours</field><field name="active">True</field>
+    </record>
+</odoo>

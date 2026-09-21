@@ -1,0 +1,28 @@
+<odoo>
+    <record id="res_config_settings_view_form_meta_leads" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.meta.leads</field><field name="model">res.config.settings</field><field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app string="Meta Lead Ads" name="crm_meta_lead_ads" groups="crm_meta_lead_ads.group_meta_lead_manager">
+                    <block title="Meta Application" help="Configure Facebook Login, Graph API and webhook verification.">
+                        <setting string="App ID"><field name="meta_app_id"/></setting>
+                        <setting string="App Secret"><field name="meta_app_secret" password="True"/></setting>
+                        <setting string="Webhook Verify Token"><field name="meta_verify_token" password="True"/></setting>
+                        <setting string="Graph API Version"><field name="meta_api_version" placeholder="v25.0"/></setting>
+                        <setting string="HTTP Timeout"><field name="meta_http_timeout"/><span class="ms-2">seconds</span></setting>
+                        <setting string="Maximum Retry Attempts"><field name="meta_max_attempts"/></setting>
+                    </block>
+                    <block title="Compliance">
+                        <setting string="Privacy Policy URL"><field name="meta_privacy_policy_url"/></setting>
+                        <setting string="Deletion Status Base URL"><field name="meta_deletion_status_base_url"/></setting>
+                    </block>
+                    <block title="Connection">
+                        <setting string="Connect Facebook Pages" help="Save settings first, then authorize Meta access for the current company."><a class="btn btn-primary" href="/meta_crm/connect">Connect Facebook Page</a></setting>
+                        <setting string="Webhook URL"><div>/meta_crm/webhook</div></setting>
+                        <setting string="Data Deletion Callback"><div>/meta_crm/data_deletion</div></setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

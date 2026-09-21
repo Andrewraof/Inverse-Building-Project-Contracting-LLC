@@ -6,6 +6,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DeployContractTests(unittest.TestCase):
+    def test_server_script_deploys_hvac_and_meta_addons(self):
+        script = (ROOT / "deploy" / "deploy-inverse-odoo").read_text(encoding="utf-8")
+        self.assertIn(
+            'readonly MODULE_NAMES=("hvac_sales_extension" "crm_meta_lead_ads")',
+            script,
+        )
+        self.assertIn('for module_name in "${MODULE_NAMES[@]}"; do', script)
+
+        workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+        self.assertIn("deploy/validate_addon.py crm_meta_lead_ads", workflow)
+
     def test_server_script_has_required_safety_gates(self):
         script = (ROOT / "deploy" / "deploy-inverse-odoo").read_text(encoding="utf-8")
         self.assertIn("set -Eeuo pipefail", script)

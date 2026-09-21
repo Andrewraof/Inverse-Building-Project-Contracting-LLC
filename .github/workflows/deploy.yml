@@ -24,6 +24,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -v
           python3 deploy/validate_addon.py hvac_sales_extension
+          python3 deploy/validate_addon.py crm_meta_lead_ads
 
       - name: Configure production SSH
         env:
@@ -42,4 +43,3 @@ jobs:
             -o IdentitiesOnly=yes \
             deploy@178.104.53.152 \
             "sudo /usr/local/sbin/deploy-inverse-odoo '${GITHUB_SHA}'"
-

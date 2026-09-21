@@ -1,0 +1,12 @@
+<odoo>
+    <record id="view_meta_form_list" model="ir.ui.view"><field name="name">meta.form.list</field><field name="model">meta.form</field><field name="arch" type="xml"><list><field name="name"/><field name="page_id"/><field name="status"/><field name="sales_team_id"/><field name="user_id"/><field name="polling_enabled"/><field name="last_sync_date"/></list></field></record>
+    <record id="view_meta_form_form" model="ir.ui.view">
+        <field name="name">meta.form.form</field><field name="model">meta.form</field>
+        <field name="arch" type="xml"><form string="Meta Lead Form">
+            <header><button name="action_generate_default_mappings" type="object" string="Generate / Refresh Mappings" class="btn-primary"/></header>
+            <sheet><group><group><field name="name"/><field name="meta_form_id"/><field name="page_id"/><field name="company_id" groups="base.group_multi_company"/></group><group><field name="status" readonly="1"/><field name="sales_team_id"/><field name="user_id"/><field name="lead_type"/><field name="polling_enabled"/><field name="last_sync_date"/></group></group>
+                <notebook><page string="Field Mapping"><field name="mapping_ids"><list editable="bottom"><field name="sequence" widget="handle"/><field name="meta_field_name"/><field name="odoo_field_name"/><field name="join_separator"/><field name="active"/></list></field></page><page string="Meta Questions"><field name="questions_json" readonly="1"/></page></notebook>
+            </sheet></form></field>
+    </record>
+    <record id="action_meta_form" model="ir.actions.act_window"><field name="name">Meta Forms</field><field name="res_model">meta.form</field><field name="view_mode">list,form</field></record>
+</odoo>

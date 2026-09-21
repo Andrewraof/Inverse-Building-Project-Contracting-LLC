@@ -1,0 +1,13 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_meta_account_user,meta.account user,model_meta_account,crm_meta_lead_ads.group_meta_lead_user,1,0,0,0
+access_meta_account_manager,meta.account manager,model_meta_account,crm_meta_lead_ads.group_meta_lead_manager,1,1,1,1
+access_meta_page_user,meta.page user,model_meta_page,crm_meta_lead_ads.group_meta_lead_user,1,0,0,0
+access_meta_page_manager,meta.page manager,model_meta_page,crm_meta_lead_ads.group_meta_lead_manager,1,1,1,1
+access_meta_form_user,meta.form user,model_meta_form,crm_meta_lead_ads.group_meta_lead_user,1,0,0,0
+access_meta_form_manager,meta.form manager,model_meta_form,crm_meta_lead_ads.group_meta_lead_manager,1,1,1,1
+access_meta_mapping_user,meta.form.mapping user,model_meta_form_mapping,crm_meta_lead_ads.group_meta_lead_user,1,0,0,0
+access_meta_mapping_manager,meta.form.mapping manager,model_meta_form_mapping,crm_meta_lead_ads.group_meta_lead_manager,1,1,1,1
+access_meta_queue_user,meta.lead.queue user,model_meta_lead_queue,crm_meta_lead_ads.group_meta_lead_user,1,0,0,0
+access_meta_queue_manager,meta.lead.queue manager,model_meta_lead_queue,crm_meta_lead_ads.group_meta_lead_manager,1,1,1,1
+access_meta_log_user,meta.lead.log user,model_meta_lead_log,crm_meta_lead_ads.group_meta_lead_user,1,0,0,0
+access_meta_log_manager,meta.lead.log manager,model_meta_lead_log,crm_meta_lead_ads.group_meta_lead_manager,1,0,1,0
