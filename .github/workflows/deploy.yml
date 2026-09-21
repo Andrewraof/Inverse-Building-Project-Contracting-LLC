@@ -1,0 +1,45 @@
+name: Deploy Odoo addon
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inverse-odoo-production
+  cancel-in-progress: false
+
+jobs:
+  validate-and-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate addon
+        run: |
+          python3 -m unittest discover -s tests -v
+          python3 deploy/validate_addon.py hvac_sales_extension
+
+      - name: Configure production SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/inverse_deploy
+          chmod 600 ~/.ssh/inverse_deploy
+          cat >> ~/.ssh/known_hosts <<'EOF'
+          178.104.53.152 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFiRnXsbg+YifWHBA9IMn5/SN9Ie3bEsJ0SMGgTDkR0R
+          EOF
+
+      - name: Deploy exact commit
+        run: |
+          ssh -i ~/.ssh/inverse_deploy \
+            -o IdentitiesOnly=yes \
+            deploy@178.104.53.152 \
+            "sudo /usr/local/sbin/deploy-inverse-odoo '${GITHUB_SHA}'"
+
