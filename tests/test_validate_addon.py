@@ -18,6 +18,13 @@ class ValidateAddonTests(unittest.TestCase):
         self.assertIn('name="privilege_id" ref="crm_meta_lead_ads.res_groups_privilege_meta_leads"', security)
         self.assertEqual(security.count('name="category_id"'), 1)
 
+    def test_meta_search_views_use_odoo19_group_by_structure(self):
+        queue_views = (ROOT / "crm_meta_lead_ads" / "views" / "meta_lead_queue_views.xml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('<group colspan="16">', queue_views)
+        self.assertNotIn('<group expand=', queue_views)
+
     def test_refresh_deployer_atomically_installs_new_version_for_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
