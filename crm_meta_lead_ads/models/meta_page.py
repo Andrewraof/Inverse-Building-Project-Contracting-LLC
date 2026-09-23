@@ -43,7 +43,10 @@ class MetaPage(models.Model):
             'active': True,
             'sync_enabled': True,
         }
-        page = self.search([('meta_page_id', '=', meta_page_id), ('company_id', '=', company.id)], limit=1)
+        # Include archived pages: a disconnected/archived page must be
+        # reactivated and updated, not recreated (unique constraint).
+        Page = self.with_context(active_test=False)
+        page = Page.search([('meta_page_id', '=', meta_page_id), ('company_id', '=', company.id)], limit=1)
         if page:
             page.write(vals)
             return page
@@ -51,7 +54,7 @@ class MetaPage(models.Model):
             with self.env.cr.savepoint():
                 return self.create(vals)
         except IntegrityError:
-            page = self.search([('meta_page_id', '=', meta_page_id), ('company_id', '=', company.id)], limit=1)
+            page = Page.search([('meta_page_id', '=', meta_page_id), ('company_id', '=', company.id)], limit=1)
             if page:
                 page.write(vals)
                 return page
