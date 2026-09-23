@@ -65,7 +65,7 @@ class MetaLeadController(http.Controller):
         expires_in = long_data.get('expires_in')
 
         me = requests.get(f'https://graph.facebook.com/{api_version}/me', params={'access_token': user_token, 'fields': 'id,name'}, timeout=timeout).json()
-        pages_resp = requests.get(f'https://graph.facebook.com/{api_version}/me/accounts', params={'access_token': user_token, 'fields': 'id,name,access_token', 'limit': 100}, timeout=timeout)
+        pages_resp = requests.get(f'https://graph.facebook.com/{api_version}/me/accounts', params={'access_token': user_token, 'fields': 'id,name,access_token,tasks', 'limit': 100}, timeout=timeout)
         pages_data = pages_resp.json()
         if pages_resp.status_code >= 400 or pages_data.get('error'):
             return request.make_response('Unable to retrieve managed Pages from Meta.', status=400)
@@ -85,13 +85,18 @@ class MetaLeadController(http.Controller):
             account = Account.create(vals)
 
         Page = request.env['meta.page'].sudo().with_company(company)
+        synced, failed = 0, 0
         for p in pages_data.get('data', []):
             if not p.get('id') or not p.get('access_token'):
                 continue
-            page = Page.search([('meta_page_id', '=', str(p['id'])), ('company_id', '=', company.id)], limit=1)
-            pvals = {'name': p.get('name') or p['id'], 'company_id': company.id, 'account_id': account.id,
-                     'meta_page_id': str(p['id']), 'page_access_token': p['access_token'], 'active': True, 'sync_enabled': True}
-            page.write(pvals) if page else Page.create(pvals)
+            try:
+                with request.env.cr.savepoint():
+                    Page._upsert_from_meta(company, account, p)
+                synced += 1
+            except Exception:
+                failed += 1
+                _logger.exception('Meta page sync failed for page %s (%s); continuing with remaining pages.', p.get('id'), p.get('name'))
+        _logger.info('Meta OAuth page sync for account %s: %s synced, %s failed.', account.id, synced, failed)
         return redirect('/web#action=crm_meta_lead_ads.action_meta_page')
 
     @http.route('/meta_crm/webhook', type='http', auth='public', methods=['GET'], csrf=False, save_session=False)

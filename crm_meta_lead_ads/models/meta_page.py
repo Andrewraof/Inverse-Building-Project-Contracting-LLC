@@ -1,5 +1,11 @@
+import logging
+
+from psycopg2 import IntegrityError
+
 from odoo import fields, models, _
 from odoo.exceptions import UserError
+
+_logger = logging.getLogger(__name__)
 
 
 class MetaPage(models.Model):
@@ -14,12 +20,42 @@ class MetaPage(models.Model):
     account_id = fields.Many2one('meta.account', required=True, ondelete='cascade', index=True)
     meta_page_id = fields.Char(required=True, index=True)
     page_access_token = fields.Text(required=True, groups='base.group_system', copy=False)
+    page_permissions = fields.Char(readonly=True, copy=False)
     sync_enabled = fields.Boolean(default=True, tracking=True)
     subscribed = fields.Boolean(default=False, readonly=True)
     form_ids = fields.One2many('meta.form', 'page_id')
     last_sync_at = fields.Datetime(readonly=True)
 
     _unique_page_company = models.Constraint('UNIQUE(meta_page_id, company_id)', 'This Meta Page is already configured for this company.')
+
+    def _upsert_from_meta(self, company, account, data):
+        meta_page_id = str(data.get('id') or '')
+        if not meta_page_id:
+            return self.browse()
+        tasks = data.get('tasks') or []
+        vals = {
+            'name': data.get('name') or meta_page_id,
+            'company_id': company.id,
+            'account_id': account.id,
+            'meta_page_id': meta_page_id,
+            'page_access_token': data.get('access_token'),
+            'page_permissions': ','.join(tasks) if tasks else False,
+            'active': True,
+            'sync_enabled': True,
+        }
+        page = self.search([('meta_page_id', '=', meta_page_id), ('company_id', '=', company.id)], limit=1)
+        if page:
+            page.write(vals)
+            return page
+        try:
+            with self.env.cr.savepoint():
+                return self.create(vals)
+        except IntegrityError:
+            page = self.search([('meta_page_id', '=', meta_page_id), ('company_id', '=', company.id)], limit=1)
+            if page:
+                page.write(vals)
+                return page
+            raise
 
     def action_subscribe_webhook(self):
         for rec in self:
