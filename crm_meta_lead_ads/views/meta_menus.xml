@@ -3,6 +3,7 @@
     <menuitem id="menu_meta_accounts" name="Accounts" parent="menu_meta_root" action="action_meta_account" sequence="5" groups="crm_meta_lead_ads.group_meta_lead_manager"/>
     <menuitem id="menu_meta_pages" name="Pages" parent="menu_meta_root" action="action_meta_page" sequence="10"/>
     <menuitem id="menu_meta_forms" name="Forms &amp; Mapping" parent="menu_meta_root" action="action_meta_form" sequence="20"/>
+    <menuitem id="menu_meta_messages" name="Messages" parent="menu_meta_root" action="action_meta_message" sequence="25"/>
     <menuitem id="menu_meta_queue" name="Ingestion Queue" parent="menu_meta_root" action="action_meta_lead_queue" sequence="30"/>
     <menuitem id="menu_meta_logs" name="Audit Logs" parent="menu_meta_root" action="action_meta_lead_log" sequence="40"/>
 </odoo>

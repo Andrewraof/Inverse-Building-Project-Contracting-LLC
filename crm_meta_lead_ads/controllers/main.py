@@ -28,7 +28,7 @@ class MetaLeadController(http.Controller):
         callback = f'{base_url}/meta_crm/oauth_callback'
         scopes = ','.join([
             'leads_retrieval', 'pages_show_list', 'pages_read_engagement',
-            'pages_manage_ads', 'pages_manage_metadata',
+            'pages_manage_ads', 'pages_manage_metadata', 'pages_messaging',
         ])
         params = {'client_id': app_id, 'redirect_uri': callback, 'state': state, 'scope': scopes, 'response_type': 'code'}
         return redirect('https://www.facebook.com/dialog/oauth?' + urlencode(params))
@@ -139,6 +139,7 @@ class MetaLeadController(http.Controller):
 
         Page = request.env['meta.page'].sudo()
         Queue = request.env['meta.lead.queue'].sudo()
+        Message = request.env['meta.message'].sudo()
         for entry in payload.get('entry', []):
             entry_page_id = str(entry.get('id') or '')
             for change in entry.get('changes', []):
@@ -155,7 +156,26 @@ class MetaLeadController(http.Controller):
                 pages = Page.search(domain)
                 for page in pages:
                     Queue.enqueue_event(page.company_id, page, leadgen_id, value.get('form_id'), payload)
+            for event in entry.get('messaging', []):
+                self._handle_messaging_event(Page, Message, account, entry_page_id, event)
         return request.make_response('EVENT_RECEIVED', status=200)
+
+    def _handle_messaging_event(self, Page, Message, account, entry_page_id, event):
+        message = event.get('message') or {}
+        if message.get('is_echo') or not message.get('mid'):
+            return
+        page_meta_id = str((event.get('recipient') or {}).get('id') or entry_page_id)
+        if not page_meta_id:
+            return
+        domain = [('meta_page_id', '=', page_meta_id), ('active', '=', True)]
+        if account:
+            domain.append(('account_id', '=', account.id))
+        for page in Page.search(domain):
+            try:
+                with request.env.cr.savepoint():
+                    Message.record_from_webhook(page.company_id, page, event)
+            except Exception:
+                _logger.exception('Failed to record Meta message for page %s.', page_meta_id)
 
     @http.route('/meta_crm/webhook', type='http', auth='public', methods=['POST'], csrf=False, save_session=False)
     def webhook_receive(self, **kw):

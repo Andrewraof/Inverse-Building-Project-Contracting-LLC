@@ -60,6 +60,17 @@ class MetaPage(models.Model):
                 return page
             raise
 
+    def _fetch_sender_name(self, psid):
+        self.ensure_one()
+        try:
+            data = self.account_id._request('GET', str(psid), token=self.page_access_token,
+                                            params={'fields': 'first_name,last_name,name'})
+        except Exception as exc:
+            _logger.warning('Could not fetch Meta sender profile %s: %s', psid, exc)
+            return False
+        full = ' '.join(p for p in (data.get('first_name'), data.get('last_name')) if p)
+        return full or data.get('name') or False
+
     def action_subscribe_webhook(self):
         for rec in self:
             data = rec.account_id._request('POST', f'{rec.meta_page_id}/subscribed_apps', token=rec.page_access_token,

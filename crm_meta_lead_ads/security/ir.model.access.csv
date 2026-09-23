@@ -11,3 +11,5 @@ access_meta_queue_user,meta.lead.queue user,model_meta_lead_queue,crm_meta_lead_
 access_meta_queue_manager,meta.lead.queue manager,model_meta_lead_queue,crm_meta_lead_ads.group_meta_lead_manager,1,1,1,1
 access_meta_log_user,meta.lead.log user,model_meta_lead_log,crm_meta_lead_ads.group_meta_lead_user,1,0,0,0
 access_meta_log_manager,meta.lead.log manager,model_meta_lead_log,crm_meta_lead_ads.group_meta_lead_manager,1,0,1,0
+access_meta_message_user,meta.message user,model_meta_message,crm_meta_lead_ads.group_meta_lead_user,1,0,0,0
+access_meta_message_manager,meta.message manager,model_meta_message,crm_meta_lead_ads.group_meta_lead_manager,1,1,1,1
