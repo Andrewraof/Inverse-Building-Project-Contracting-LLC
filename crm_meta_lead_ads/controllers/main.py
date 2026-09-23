@@ -4,6 +4,7 @@ import logging
 import secrets
 from urllib.parse import urlencode
 import requests
+from markupsafe import Markup, escape
 from werkzeug.utils import redirect
 from odoo import http, fields, _
 from odoo.http import request
@@ -85,18 +86,33 @@ class MetaLeadController(http.Controller):
             account = Account.create(vals)
 
         Page = request.env['meta.page'].sudo().with_company(company)
+        meta_pages = pages_data.get('data', [])
+        results = []
         synced, failed = 0, 0
-        for p in pages_data.get('data', []):
+        for p in meta_pages:
+            label = f"{p.get('name') or '?'} ({p.get('id') or 'no-id'})"
             if not p.get('id') or not p.get('access_token'):
+                results.append((label, 'skipped: Meta returned no access token for this page'))
                 continue
             try:
                 with request.env.cr.savepoint():
                     Page._upsert_from_meta(company, account, p)
                 synced += 1
-            except Exception:
+                results.append((label, 'synced'))
+            except Exception as exc:
                 failed += 1
-                _logger.exception('Meta page sync failed for page %s (%s); continuing with remaining pages.', p.get('id'), p.get('name'))
-        _logger.info('Meta OAuth page sync for account %s: %s synced, %s failed.', account.id, synced, failed)
+                results.append((label, f'failed: {exc}'))
+                _logger.exception('Meta page sync failed for page %s; continuing with remaining pages.', label)
+        _logger.info('Meta OAuth page sync for account %s: Meta returned %s page(s), %s synced, %s failed.',
+                     account.id, len(meta_pages), synced, failed)
+        if not meta_pages:
+            _logger.warning('Meta OAuth returned 0 pages for account %s. Verify the page is granted to the app '
+                            'during the Meta login dialog and that pages_show_list is approved.', account.id)
+        detail = Markup('<br/>').join(escape(f'{label}: {status}') for label, status in results) \
+            if results else escape('Meta returned no pages for this account. Re-run Connect and make sure '
+                                   'the page (e.g. 105093352514596) is selected in the Meta permissions dialog.')
+        account.message_post(body=Markup('<b>Meta OAuth page sync:</b> {} of {} page(s) synced.<br/>{}').format(
+            synced, len(meta_pages), detail))
         return redirect('/web#action=crm_meta_lead_ads.action_meta_page')
 
     @http.route('/meta_crm/webhook', type='http', auth='public', methods=['GET'], csrf=False, save_session=False)
