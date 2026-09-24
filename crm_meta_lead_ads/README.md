@@ -16,6 +16,11 @@ Technical module: `crm_meta_lead_ads`
 - Immutable-style audit interface / payload logs
 - Meta user-data deletion callback and status URL
 - Odoo CRM lead traceability fields
+- Ad attribution on CRM leads: campaign/ad set/ad IDs and names fetched
+  with the lead itself (no extra permissions); optional and never
+  blocking lead creation. Legacy `meta_adgroup_id` stays in sync with
+  the canonical `meta_adset_id` (backfilled by the `19.0.3.0.0`
+  idempotent migration).
 
 ## Meta Inbox (Messenger conversations)
 - One `meta.conversation` per (Page, Page-Scoped User ID); `channel = messenger`

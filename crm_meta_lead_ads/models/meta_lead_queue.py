@@ -52,7 +52,7 @@ class MetaLeadQueue(models.Model):
         self.ensure_one()
         # page_id/adgroup_id were removed from the leadgen node; valid fields
         # on current Graph versions are adset_id/campaign_id instead.
-        fields_list = 'id,created_time,ad_id,adset_id,campaign_id,form_id,field_data,platform,is_organic'
+        fields_list = 'id,created_time,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,form_id,field_data,platform,is_organic'
         return self.page_id.account_id._request('GET', self.meta_lead_id, token=self.page_id.page_access_token, params={'fields': fields_list})
 
     def _mapping_values(self, payload):
@@ -96,6 +96,9 @@ class MetaLeadQueue(models.Model):
             **mapped, 'name': name, 'company_id': self.company_id.id, 'meta_lead_id': self.meta_lead_id,
             'meta_form_id': form.id if form else False, 'meta_page_id': self.page_id.id,
             'meta_platform': platform, 'meta_ad_id': payload.get('ad_id'), 'meta_adgroup_id': payload.get('adset_id'),
+            'meta_adset_id': payload.get('adset_id'), 'meta_campaign_id': payload.get('campaign_id'),
+            'meta_ad_name': payload.get('ad_name'), 'meta_adset_name': payload.get('adset_name'),
+            'meta_campaign_name': payload.get('campaign_name'),
             'meta_is_organic': bool(payload.get('is_organic')), 'meta_raw_payload': payload,
             'team_id': form.sales_team_id.id if form and form.sales_team_id else False,
             'user_id': form.user_id.id if form and form.user_id else False,
