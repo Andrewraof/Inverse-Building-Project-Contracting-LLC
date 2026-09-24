@@ -78,11 +78,7 @@
                         <field name="reply_draft" nolabel="1" placeholder="Write a reply to the customer, then press Send Reply..."/>
                     </group>
                 </sheet>
-                <div class="oe_chatter">
-                    <field name="message_follower_ids"/>
-                    <field name="activity_ids"/>
-                    <field name="message_ids"/>
-                </div>
+                <chatter reload_on_post="True"/>
             </form>
         </field>
     </record>
