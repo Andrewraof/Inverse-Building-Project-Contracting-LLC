@@ -30,7 +30,7 @@ class MetaConversation(models.Model):
     last_message_at = fields.Datetime(index=True)
     last_message_preview = fields.Char()
     unread_count = fields.Integer(default=0, readonly=True)
-    message_ids = fields.One2many('meta.message', 'conversation_id')
+    meta_message_ids = fields.One2many('meta.message', 'conversation_id')
     active = fields.Boolean(default=True)
 
     _unique_conversation = models.Constraint(

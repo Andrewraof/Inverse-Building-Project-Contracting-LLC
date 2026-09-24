@@ -98,6 +98,20 @@ class TestMetaInbox(TransactionCase):
         self.assertEqual(self.Conversation.search_count(
             [('page_id', '=', self.page.id), ('psid', '=', 'psid-C')]), 1)
 
+    def test_conversation_keeps_mail_thread_message_ids(self):
+        # Regression: the One2many to meta.message must not override
+        # mail.thread.message_ids (mail.message), otherwise linking
+        # messages crashes with KeyError 'message_type'.
+        conv = self.Conversation._get_or_create(self.page, 'psid-D')
+        msg = self._legacy_message('psid-D', 'mid-D1', 'orphan')
+        self.Conversation._link_legacy_messages()
+        msg.invalidate_recordset()
+        self.assertEqual(msg.conversation_id, conv)
+        self.assertIn(msg, conv.meta_message_ids)
+        self.assertEqual(conv.message_ids._name, 'mail.message')
+        posted = conv.message_post(body='inbox note')
+        self.assertIn(posted, conv.message_ids)
+
     def test_default_notify_user_setting(self):
         settings = self.env['res.config.settings'].create({
             'meta_inbox_default_user_id': self.env.user.id,
