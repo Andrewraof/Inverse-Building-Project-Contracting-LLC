@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import random
@@ -5,11 +6,23 @@ import time
 from datetime import timedelta
 from psycopg2 import IntegrityError
 from odoo import api, fields, models, _
+from odoo.exceptions import UserError
+from .meta_dedup import normalize_email, normalize_phone
 
 _logger = logging.getLogger(__name__)
 
 POLL_MAX_PAGES = 10
 POLL_OVERLAP_SECONDS = 300
+
+# Technical keys allowed in the audit log payload. field_data and any
+# customer contact answers (email/phone/name) must never reach
+# meta.lead.log.payload_json — the full payload lives only in the
+# protected fields (queue.fetched_payload, lead.meta_raw_payload).
+AUDIT_PAYLOAD_KEYS = (
+    'id', 'created_time', 'form_id', 'platform', 'is_organic',
+    'ad_id', 'ad_name', 'adset_id', 'adset_name',
+    'campaign_id', 'campaign_name',
+)
 
 
 class MetaLeadQueue(models.Model):
@@ -23,7 +36,8 @@ class MetaLeadQueue(models.Model):
     meta_lead_id = fields.Char(required=True, index=True)
     raw_webhook = fields.Json(readonly=True)
     fetched_payload = fields.Json(readonly=True)
-    state = fields.Selection([('pending','Pending'),('processing','Processing'),('done','Done'),('duplicate','Duplicate'),('retry','Retry'),('failed','Failed')], default='pending', required=True, index=True)
+    state = fields.Selection([('pending','Pending'),('processing','Processing'),('done','Done'),('duplicate','Duplicate'),('ambiguous','Ambiguous'),('retry','Retry'),('failed','Failed')], default='pending', required=True, index=True)
+    match_result = fields.Selection([('created','Created'),('matched_email','Matched by Email'),('matched_phone','Matched by Phone'),('duplicate_meta_id','Duplicate Meta Lead ID'),('ambiguous','Ambiguous'),('failed','Failed')], readonly=True, index=True, copy=False)
     priority = fields.Integer(default=10)
     attempts = fields.Integer(default=0)
     next_retry_at = fields.Datetime(index=True)
@@ -86,16 +100,175 @@ class MetaLeadQueue(models.Model):
         xmlid = 'crm_meta_lead_ads.utm_source_instagram' if platform == 'instagram' else 'crm_meta_lead_ads.utm_source_facebook'
         return self.env.ref(xmlid, raise_if_not_found=False)
 
-    def _create_crm_lead(self, payload):
+    def _ensure_identity(self, lead, match_type):
+        """Link this queue event's Meta lead ID to the CRM lead, keeping
+        every Meta lead ID in its own audit row. Idempotent and safe
+        against a concurrent insert of the same ID. An existing row for
+        the same ID must point at the SAME lead — a conflict is raised,
+        never swallowed, so no wrong linkage can slip through."""
         self.ensure_one()
-        existing = self.env['crm.lead'].sudo().search([('meta_lead_id', '=', self.meta_lead_id)], limit=1)
+        Identity = self.env['meta.lead.identity'].sudo()
+        domain = [('meta_lead_id', '=', self.meta_lead_id), ('company_id', '=', self.company_id.id)]
+        existing = Identity.search(domain, limit=1)
         if existing:
-            return existing, True
+            if existing.crm_lead_id != lead:
+                raise UserError(_(
+                    'Meta lead identity conflict: this Meta lead ID is already '
+                    'linked to CRM lead %s.') % existing.crm_lead_id.id)
+            return existing
+        try:
+            with self.env.cr.savepoint():
+                return Identity.create({
+                    'company_id': self.company_id.id, 'crm_lead_id': lead.id,
+                    'meta_lead_id': self.meta_lead_id, 'queue_id': self.id,
+                    'match_type': match_type,
+                })
+        except IntegrityError:
+            # Race: a concurrent transaction inserted the row. Accept it
+            # only if it provably links the same lead and company —
+            # anything else means a real inconsistency and must surface.
+            competitor = Identity.search(domain, limit=1)
+            if (competitor and competitor.crm_lead_id == lead
+                    and competitor.company_id == self.company_id):
+                return competitor
+            raise
+
+    def _normalized_keys(self, mapped):
+        self.ensure_one()
+        country = self.company_id.country_id
+        uae = bool(country and country.code == 'AE')
+        email = normalize_email(mapped.get('email_from'))
+        phone = normalize_phone(mapped.get('phone'), uae_context=uae)
+        return email, phone
+
+    def _dedup_lock_keys(self, email, phone):
+        """Deterministic 64-bit advisory-lock keys, one per normalized
+        match key, scoped to the company. SHA-256 (never Python hash(),
+        which differs between processes), sorted so concurrent workers
+        always lock in the same order and cannot deadlock."""
+        self.ensure_one()
+        keys = []
+        for channel, value in (('email', email), ('phone', phone)):
+            if value:
+                material = 'meta_dedup:%s:%s:%s' % (self.company_id.id, channel, value)
+                digest = hashlib.sha256(material.encode('utf-8')).digest()
+                keys.append(int.from_bytes(digest[:8], 'big', signed=True))
+        return sorted(keys)
+
+    def _acquire_dedup_locks(self, email, phone):
+        """Take transaction-scoped advisory locks for every normalized
+        key this event carries, in a fixed order. Two events that could
+        resolve to the same lead always share at least one key (the
+        matched channel), so they are serialized; the caller re-searches
+        after locking."""
+        for key in self._dedup_lock_keys(email, phone):
+            self.env.cr.execute('SELECT pg_advisory_xact_lock(%s)', (key,))
+
+    def _safe_audit_payload(self, payload):
+        """Technical-only payload for meta.lead.log: IDs, platform and
+        campaign metadata. Never field_data or customer contact data."""
+        if not isinstance(payload, dict):
+            return {}
+        return {k: payload.get(k) for k in AUDIT_PAYLOAD_KEYS if payload.get(k) is not None}
+
+    def _match_existing_lead(self, email, phone):
+        """Conservative same-company dedup match on normalized contact
+        data. Returns (outcome, lead, detail): exact normalized email or
+        phone matches link to the existing lead; conflicting or multiple
+        candidates are ambiguous and never auto-linked; the contact name
+        alone is never a match key. Archived leads stay untouched."""
+        self.ensure_one()
+        Lead = self.env['crm.lead'].sudo()
+        company_id = self.company_id.id
+        email_lead = phone_lead = False
+        if email:
+            recs = Lead.search([('company_id', '=', company_id), ('meta_norm_email', '=', email)], limit=2)
+            if len(recs) > 1:
+                return 'ambiguous', False, 'normalized email matches several CRM leads (ids: %s)' % recs.ids
+            email_lead = recs
+        if phone:
+            recs = Lead.search([('company_id', '=', company_id), ('meta_norm_phone', '=', phone)], limit=2)
+            if len(recs) > 1:
+                return 'ambiguous', False, 'normalized phone matches several CRM leads (ids: %s)' % recs.ids
+            phone_lead = recs
+        if email_lead and phone_lead and email_lead != phone_lead:
+            return 'ambiguous', False, 'email and phone match different CRM leads (ids: %s, %s)' % (email_lead.id, phone_lead.id)
+        if email_lead:
+            return 'matched_email', email_lead, ''
+        if phone_lead:
+            return 'matched_phone', phone_lead, ''
+        return 'created', False, ''
+
+    def _fill_matched_lead(self, lead, mapped, payload, form, platform, source):
+        """Fill ONLY empty fields on a matched existing lead. Never
+        overwrites existing data and never touches salesperson, team,
+        stage, won/lost or active state."""
+        self.ensure_one()
+        fill = {}
+        for fname in ('contact_name', 'email_from', 'phone'):
+            if not lead[fname] and mapped.get(fname):
+                fill[fname] = mapped[fname]
+        meta_vals = {
+            'meta_form_id': form.id if form else False,
+            'meta_page_id': self.page_id.id,
+            'meta_platform': platform,
+            'meta_ad_id': payload.get('ad_id'),
+            'meta_adgroup_id': payload.get('adset_id'),
+            'meta_adset_id': payload.get('adset_id'),
+            'meta_campaign_id': payload.get('campaign_id'),
+            'meta_ad_name': payload.get('ad_name'),
+            'meta_adset_name': payload.get('adset_name'),
+            'meta_campaign_name': payload.get('campaign_name'),
+            'source_id': source.id if source else False,
+        }
+        for fname, value in meta_vals.items():
+            if value and not lead[fname]:
+                fill[fname] = value
+        if not lead.meta_raw_payload:
+            fill['meta_raw_payload'] = payload
+        if fill:
+            lead.write(fill)
+
+    def _post_match_chatter(self, lead, outcome, form):
+        self.ensure_one()
+        label = 'email' if outcome == 'matched_email' else 'phone'
+        lead.message_post(
+            body=_('New Meta Lead Ads inquiry linked to this lead (matched by %s). Page: %s. Form: %s. Meta lead ID: %s.') % (
+                label, self.page_id.name or '-', form.name if form else '-', self.meta_lead_id),
+            message_type='comment', subtype_xmlid='mail.mt_note')
+
+    def _resolve_crm_lead(self, payload):
+        """Resolve this queue event to a CRM lead. Returns
+        (lead, outcome, detail) where outcome is one of created,
+        matched_email, matched_phone, duplicate_meta_id, ambiguous.
+        Every search is company-scoped; a Meta lead ID owned by another
+        company is never linked cross-company."""
+        self.ensure_one()
+        Lead = self.env['crm.lead'].sudo()
+        existing = Lead.search([
+            ('meta_lead_id', '=', self.meta_lead_id),
+            ('company_id', '=', self.company_id.id)], limit=1)
+        if existing:
+            self._ensure_identity(existing, 'duplicate_meta_id')
+            return existing, 'duplicate_meta_id', ''
         mapped, form = self._mapping_values(payload)
+        email, phone = self._normalized_keys(mapped)
+        # Serialize concurrent events that could resolve to the same
+        # lead, then search AFTER the lock: a competitor that committed
+        # meanwhile is found by this search, not by a duplicate create.
+        self._acquire_dedup_locks(email, phone)
+        outcome, matched, detail = self._match_existing_lead(email, phone)
+        if outcome == 'ambiguous':
+            return False, 'ambiguous', detail
         platform = (payload.get('platform') or 'unknown').lower()
         if platform not in ('facebook', 'instagram'):
             platform = 'unknown'
         source = self._resolve_source(platform)
+        if matched:
+            self._fill_matched_lead(matched, mapped, payload, form, platform, source)
+            self._ensure_identity(matched, outcome)
+            self._post_match_chatter(matched, outcome, form)
+            return matched, outcome, ''
         name = mapped.pop('name', False) or mapped.get('contact_name') or mapped.get('email_from') or _('Meta Lead %s') % self.meta_lead_id
         vals = {
             **mapped, 'name': name, 'company_id': self.company_id.id, 'meta_lead_id': self.meta_lead_id,
@@ -121,37 +294,69 @@ class MetaLeadQueue(models.Model):
                 vals['partner_id'] = partner.id
         try:
             with self.env.cr.savepoint():
-                return self.env['crm.lead'].sudo().with_company(self.company_id).create(vals), False
+                lead = Lead.with_company(self.company_id).create(vals)
         except IntegrityError:
-            return self.env['crm.lead'].sudo().search([('meta_lead_id', '=', self.meta_lead_id)], limit=1), True
+            lead = Lead.search([('meta_lead_id', '=', self.meta_lead_id)], limit=1)
+            if lead and lead.company_id and lead.company_id != self.company_id:
+                # The global UNIQUE(meta_lead_id) on crm.lead collided
+                # with another company's lead. Never link cross-company;
+                # park the event for manual review instead.
+                return False, 'ambiguous', (
+                    'meta lead ID already belongs to a CRM lead in another '
+                    'company (lead id: %s); manual review required' % lead.id)
+            if lead:
+                self._ensure_identity(lead, 'duplicate_meta_id')
+                return lead, 'duplicate_meta_id', ''
+            # An IntegrityError with no competing lead is something else
+            # entirely — never swallow it.
+            raise
+        self._ensure_identity(lead, 'created')
+        return lead, 'created', ''
 
     def _schedule_retry(self, message, fatal=False):
         self.ensure_one()
         max_attempts = int(self.env['ir.config_parameter'].sudo().get_param('crm_meta_lead_ads.max_attempts', '8'))
         attempts = self.attempts + 1
         if fatal or attempts >= max_attempts:
-            self.write({'state': 'failed', 'attempts': attempts, 'error_message': message, 'processed_at': fields.Datetime.now()})
+            self.write({'state': 'failed', 'match_result': 'failed', 'attempts': attempts, 'error_message': message, 'processed_at': fields.Datetime.now()})
             self._log('error', 'failed', message)
             return
         delay = min(2 ** attempts, 60) + random.randint(0, 3)
         self.write({'state': 'retry', 'attempts': attempts, 'error_message': message, 'next_retry_at': fields.Datetime.now() + timedelta(minutes=delay)})
         self._log('warning', 'retry_scheduled', message)
 
+    OUTCOME_STATE = {
+        'created': 'done', 'matched_email': 'done', 'matched_phone': 'done',
+        'duplicate_meta_id': 'duplicate', 'ambiguous': 'ambiguous',
+    }
+
     def process_one(self):
         self.ensure_one()
-        if self.state not in ('pending', 'retry', 'failed'):
+        if self.state not in ('pending', 'retry', 'failed', 'ambiguous'):
             return
         self.state = 'processing'
         try:
             payload = self._fetch_lead()
             self.fetched_payload = payload
-            lead, duplicate = self._create_crm_lead(payload)
-            self.write({'state': 'duplicate' if duplicate else 'done', 'crm_lead_id': lead.id, 'processed_at': fields.Datetime.now(), 'error_message': False})
-            self._log('info', 'duplicate' if duplicate else 'created', f'CRM lead {lead.id}', payload)
+            lead, outcome, detail = self._resolve_crm_lead(payload)
+            self.write({
+                'state': self.OUTCOME_STATE[outcome], 'match_result': outcome,
+                'crm_lead_id': lead.id if lead else False,
+                'processed_at': fields.Datetime.now(), 'error_message': detail or False,
+            })
+            level = 'warning' if outcome == 'ambiguous' else 'info'
+            self._log(level, outcome, detail or 'CRM lead %s' % lead.id,
+                      self._safe_audit_payload(payload))
         except Exception as exc:
-            _logger.exception('Meta lead processing failed for %s', self.meta_lead_id)
-            fatal = self.page_id.account_id.state == 'error'
-            self._schedule_retry(str(exc), fatal=fatal)
+            account = self.page_id.account_id
+            message = account._sanitize_error(exc, [
+                self.page_id.page_access_token,
+                account.user_access_token, account.app_secret,
+            ])
+            # Log the sanitized message only — never exc_info, whose
+            # traceback text could carry tokens or customer data.
+            _logger.error('Meta lead processing failed for queue %s: %s', self.id, message)
+            self._schedule_retry(message, fatal=account.state == 'error')
 
     @api.model
     def _cron_process_queue(self, limit=50):

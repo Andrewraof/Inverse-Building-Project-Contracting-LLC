@@ -2,8 +2,10 @@ from . import meta_account
 from . import meta_page
 from . import meta_form
 from . import meta_form_mapping
+from . import meta_dedup
 from . import meta_lead_queue
 from . import meta_lead_log
+from . import meta_lead_identity
 from . import meta_message
 from . import meta_conversation
 from . import crm_lead
