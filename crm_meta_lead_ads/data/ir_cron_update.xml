@@ -1,6 +1,8 @@
 <odoo>
-    <!-- Force-update on existing databases: ir_cron_data.xml is noupdate="1",
-         so this record re-applies the 5-minute polling interval on upgrade. -->
+    <!-- Kept for fresh installs. On existing databases this record is
+         noupdate-flagged and never re-applies; the authoritative fix for
+         the 5-minute interval is the 19.0.3.1.0 post-migration, which
+         writes through the ORM. -->
     <record id="ir_cron_poll_meta_leads" model="ir.cron">
         <field name="interval_number">5</field>
         <field name="interval_type">minutes</field>

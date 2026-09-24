@@ -10,7 +10,10 @@ Technical module: `crm_meta_lead_ads`
 - PostgreSQL-level idempotency for queue rows and CRM leads
 - Dynamic per-form field mapping
 - Facebook / Instagram UTM sources
-- Hourly recovery polling for missed leads
+- Recovery polling for missed leads with cursor pagination, server-side
+  time filtering (`filtering/time_created` — live-verified on Graph v25.0;
+  plain `since` is silently ignored by Meta), and a bulk pre-check enqueue
+  that never relies on unique-constraint violations as the normal path
 - Multi-company record rules and company-bound configuration
 - Token invalidation handling and administrator activity alert
 - Immutable-style audit interface / payload logs

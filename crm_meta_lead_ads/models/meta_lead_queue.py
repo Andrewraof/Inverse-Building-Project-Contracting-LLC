@@ -1,10 +1,15 @@
+import json
 import logging
 import random
+import time
 from datetime import timedelta
 from psycopg2 import IntegrityError
 from odoo import api, fields, models, _
 
 _logger = logging.getLogger(__name__)
+
+POLL_MAX_PAGES = 10
+POLL_OVERLAP_SECONDS = 300
 
 
 class MetaLeadQueue(models.Model):
@@ -158,19 +163,113 @@ class MetaLeadQueue(models.Model):
             rec.process_one()
         return True
 
+    def _enqueue_poll_leads(self, company, page, form, lead_ids):
+        """Bulk-enqueue polled leads: one pre-check search per form, then
+        inserts only for IDs missing from the queue. The unique constraint
+        and the savepoint/IntegrityError fallback remain as race protection
+        against concurrent webhook delivery only — never as the normal
+        duplicate path (which produced thousands of ERROR logs)."""
+        unique_ids = list(dict.fromkeys(str(i) for i in lead_ids if i))
+        if not unique_ids:
+            return 0, 0, 0, 0
+        existing = set(self.sudo().search([
+            ('meta_lead_id', 'in', unique_ids), ('company_id', '=', company.id),
+        ]).mapped('meta_lead_id'))
+        pre_existing = 0
+        created = 0
+        race_duplicates = 0
+        for lead_id in unique_ids:
+            if lead_id in existing:
+                pre_existing += 1
+                continue
+            try:
+                with self.env.cr.savepoint():
+                    self.sudo().create({
+                        'company_id': company.id, 'page_id': page.id, 'form_id': form.id,
+                        'meta_lead_id': lead_id, 'raw_webhook': {'recovery_poll': True},
+                    })
+                created += 1
+            except IntegrityError:
+                # A conflict is a race duplicate only if a competing row
+                # provably exists now (e.g. the webhook won the race).
+                # Otherwise the IntegrityError means something else entirely
+                # and must propagate — never silently drop a Meta lead ID.
+                competitor = self.sudo().search([
+                    ('meta_lead_id', '=', lead_id), ('company_id', '=', company.id),
+                ], limit=1)
+                if competitor:
+                    race_duplicates += 1
+                else:
+                    raise
+        return len(unique_ids), pre_existing, created, race_duplicates
+
+    def _poll_form_leads(self, form):
+        """Fetch lead IDs for one form with safe cursor pagination.
+
+        Uses paging.cursors.after as a plain parameter on the same Graph
+        endpoint (never paging.next as a full URL, so no external host can
+        be injected), stops at POLL_MAX_PAGES or on a repeated cursor.
+        Returns (lead_ids, pages)."""
+        page = form.page_id
+        params = {'fields': 'id,created_time', 'limit': 100}
+        if form.last_sync_date:
+            # Live-verified on Graph v25.0: the leads edge silently ignores
+            # plain `since`; time filtering works only via `filtering`.
+            since = int(form.last_sync_date.timestamp()) - POLL_OVERLAP_SECONDS
+            params['filtering'] = json.dumps([{
+                'field': 'time_created', 'operator': 'GREATER_THAN', 'value': since,
+            }])
+        lead_ids = []
+        seen_cursors = set()
+        after = False
+        pages = 0
+        while True:
+            if after:
+                params['after'] = after
+            data = page.account_id._request(
+                'GET', f'{form.meta_form_id}/leads', token=page.page_access_token, params=params)
+            pages += 1
+            items = data.get('data') or []
+            lead_ids.extend(str(item['id']) for item in items if item.get('id'))
+            next_after = ((data.get('paging') or {}).get('cursors') or {}).get('after')
+            if not next_after or not items:
+                break
+            if next_after in seen_cursors or next_after == after:
+                _logger.warning(
+                    'Meta polling: repeated pagination cursor on form %s; stopping at page %s',
+                    form.id, pages)
+                break
+            if pages >= POLL_MAX_PAGES:
+                _logger.warning(
+                    'Meta polling: page limit %s reached on form %s; older leads wait for the next cycle',
+                    POLL_MAX_PAGES, form.id)
+                break
+            seen_cursors.add(next_after)
+            after = next_after
+        return lead_ids, pages
+
     @api.model
     def _cron_poll_meta_leads(self):
         forms = self.env['meta.form'].sudo().search([('active','=',True),('polling_enabled','=',True),('page_id.sync_enabled','=',True)])
         for form in forms:
-            page = form.page_id
-            params = {'fields': 'id,created_time', 'limit': 100}
-            if form.last_sync_date:
-                params['since'] = int(form.last_sync_date.timestamp())
+            sync_started_at = fields.Datetime.now()
+            timer = time.monotonic()
             try:
-                data = page.account_id._request('GET', f'{form.meta_form_id}/leads', token=page.page_access_token, params=params)
-                for item in data.get('data', []):
-                    self.enqueue_event(form.company_id, page, item['id'], form.meta_form_id, {'recovery_poll': True})
-                form.last_sync_date = fields.Datetime.now()
+                lead_ids, pages = self._poll_form_leads(form)
+                unique, pre_existing, created, race_duplicates = self._enqueue_poll_leads(
+                    form.company_id, form.page_id, form, lead_ids)
+                # Anchor the watermark at the start of the sync, not the end,
+                # so a lead arriving during pagination is never skipped.
+                form.last_sync_date = sync_started_at
+                _logger.info(
+                    'Meta polling form %s: fetched=%s pages=%s unique=%s existing=%s created=%s race=%s duration=%.1fs',
+                    form.id, len(lead_ids), pages, unique, pre_existing,
+                    created, race_duplicates, time.monotonic() - timer)
             except Exception as exc:
-                self.env['meta.lead.log'].sudo().create({'company_id': form.company_id.id, 'level': 'error', 'action': 'poll_failed', 'message': str(exc)})
+                account = form.page_id.account_id
+                message = account._sanitize_error(exc, [
+                    form.page_id.page_access_token,
+                    account.user_access_token, account.app_secret,
+                ])
+                self.env['meta.lead.log'].sudo().create({'company_id': form.company_id.id, 'level': 'error', 'action': 'poll_failed', 'message': message})
         return True
