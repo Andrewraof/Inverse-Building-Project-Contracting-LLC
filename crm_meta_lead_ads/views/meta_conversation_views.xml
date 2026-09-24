@@ -3,7 +3,7 @@
         <field name="name">meta.conversation.list</field>
         <field name="model">meta.conversation</field>
         <field name="arch" type="xml">
-            <list decoration-info="state == 'new'" decoration-muted="state == 'closed'" decoration-bold="unread_count &gt; 0">
+            <list>
                 <field name="sender_name"/>
                 <field name="last_message_preview"/>
                 <field name="last_message_at" optional="show"/>
