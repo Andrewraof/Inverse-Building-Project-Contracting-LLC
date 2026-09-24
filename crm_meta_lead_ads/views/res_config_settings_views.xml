@@ -16,6 +16,9 @@
                         <setting string="Privacy Policy URL"><field name="meta_privacy_policy_url"/></setting>
                         <setting string="Deletion Status Base URL"><field name="meta_deletion_status_base_url"/></setting>
                     </block>
+                    <block title="Inbox">
+                        <setting string="Default Inbox Notify User" help="Receives notifications for new Meta messages when a conversation has no assigned user."><field name="meta_inbox_default_user_id"/></setting>
+                    </block>
                     <block title="Connection">
                         <setting string="Connect Facebook Pages" help="Save settings first, then authorize Meta access for the current company."><a class="btn btn-primary" href="/meta_crm/connect">Connect Facebook Page</a></setting>
                         <setting string="Webhook URL"><div>/meta_crm/webhook</div></setting>

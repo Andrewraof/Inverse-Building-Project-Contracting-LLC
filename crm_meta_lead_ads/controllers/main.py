@@ -124,7 +124,7 @@ class MetaLeadController(http.Controller):
 
         Page = request.env['meta.page'].sudo()
         Queue = request.env['meta.lead.queue'].sudo()
-        Message = request.env['meta.message'].sudo()
+        Conversation = request.env['meta.conversation'].sudo()
         for entry in payload.get('entry', []):
             entry_page_id = str(entry.get('id') or '')
             for change in entry.get('changes', []):
@@ -142,10 +142,10 @@ class MetaLeadController(http.Controller):
                 for page in pages:
                     Queue.enqueue_event(page.company_id, page, leadgen_id, value.get('form_id'), payload)
             for event in entry.get('messaging', []):
-                self._handle_messaging_event(Page, Message, account, entry_page_id, event)
+                self._handle_messaging_event(Page, Conversation, account, entry_page_id, event)
         return request.make_response('EVENT_RECEIVED', status=200)
 
-    def _handle_messaging_event(self, Page, Message, account, entry_page_id, event):
+    def _handle_messaging_event(self, Page, Conversation, account, entry_page_id, event):
         message = event.get('message') or {}
         if message.get('is_echo') or not message.get('mid'):
             return
@@ -158,9 +158,15 @@ class MetaLeadController(http.Controller):
         for page in Page.search(domain):
             try:
                 with request.env.cr.savepoint():
-                    Message.record_from_webhook(page.company_id, page, event)
-            except Exception:
-                _logger.exception('Failed to record Meta message for page %s.', page_meta_id)
+                    Conversation.with_company(page.company_id)._record_inbound_message(page, event)
+            except Exception as exc:
+                secrets_to_hide = [
+                    page.page_access_token,
+                    page.account_id.user_access_token,
+                    page.account_id.app_secret,
+                ]
+                safe_error = page.account_id._sanitize_error(exc, secrets_to_hide)
+                _logger.error('Failed to record Meta message for page %s: %s', page_meta_id, safe_error)
 
     @http.route('/meta_crm/webhook', type='http', auth='public', methods=['POST'], csrf=False, save_session=False)
     def webhook_receive(self, **kw):

@@ -12,3 +12,4 @@ class ResConfigSettings(models.TransientModel):
     meta_max_attempts = fields.Integer(config_parameter='crm_meta_lead_ads.max_attempts', default=8)
     meta_privacy_policy_url = fields.Char(config_parameter='crm_meta_lead_ads.privacy_policy_url')
     meta_deletion_status_base_url = fields.Char(config_parameter='crm_meta_lead_ads.deletion_status_base_url')
+    meta_inbox_default_user_id = fields.Many2one('res.users', config_parameter='crm_meta_lead_ads.inbox_default_user_id')

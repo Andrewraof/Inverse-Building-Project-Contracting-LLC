@@ -12,5 +12,6 @@ class CrmLead(models.Model):
     meta_adgroup_id = fields.Char(copy=False, readonly=True)
     meta_is_organic = fields.Boolean(copy=False, readonly=True)
     meta_raw_payload = fields.Json(copy=False, readonly=True, groups='base.group_system')
+    meta_conversation_id = fields.Many2one('meta.conversation', copy=False, readonly=True, index=True)
 
     _unique_meta_lead = models.Constraint('UNIQUE(meta_lead_id)', 'This Meta lead was already imported.')

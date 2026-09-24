@@ -5,5 +5,6 @@ from . import meta_form_mapping
 from . import meta_lead_queue
 from . import meta_lead_log
 from . import meta_message
+from . import meta_conversation
 from . import crm_lead
 from . import res_config_settings

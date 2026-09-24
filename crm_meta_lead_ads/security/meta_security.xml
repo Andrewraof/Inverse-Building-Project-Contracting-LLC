@@ -23,4 +23,5 @@
     <record id="rule_meta_mapping_company" model="ir.rule"><field name="name">Meta mapping company</field><field name="model_id" ref="model_meta_form_mapping"/><field name="domain_force">[('company_id','in',company_ids)]</field></record>
     <record id="rule_meta_queue_company" model="ir.rule"><field name="name">Meta queue company</field><field name="model_id" ref="model_meta_lead_queue"/><field name="domain_force">[('company_id','in',company_ids)]</field></record>
     <record id="rule_meta_log_company" model="ir.rule"><field name="name">Meta log company</field><field name="model_id" ref="model_meta_lead_log"/><field name="domain_force">[('company_id','in',company_ids)]</field></record>
+    <record id="rule_meta_conversation_company" model="ir.rule"><field name="name">Meta conversation company</field><field name="model_id" ref="model_meta_conversation"/><field name="domain_force">[('company_id','in',company_ids)]</field></record>
 </odoo>
