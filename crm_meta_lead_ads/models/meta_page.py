@@ -7,6 +7,8 @@ from odoo.exceptions import UserError, ValidationError
 
 _logger = logging.getLogger(__name__)
 
+REQUIRED_SUBSCRIPTION_FIELDS = ('leadgen', 'messages', 'messaging_postbacks')
+
 
 class MetaPage(models.Model):
     _name = 'meta.page'
@@ -23,6 +25,12 @@ class MetaPage(models.Model):
     page_permissions = fields.Char(readonly=True, copy=False)
     sync_enabled = fields.Boolean(default=True, tracking=True)
     subscribed = fields.Boolean(default=False, readonly=True)
+    subscription_status = fields.Selection([
+        ('unknown', 'Unknown'), ('verified', 'Verified'),
+        ('incomplete', 'Incomplete'), ('failed', 'Failed'),
+    ], default='unknown', readonly=True)
+    subscription_checked_at = fields.Datetime(readonly=True)
+    subscription_error = fields.Char(readonly=True)
     form_ids = fields.One2many('meta.form', 'page_id')
     last_sync_at = fields.Datetime(readonly=True)
 
@@ -123,18 +131,98 @@ class MetaPage(models.Model):
             data = self.account_id._request('GET', str(psid), token=self.page_access_token,
                                             params={'fields': 'first_name,last_name,name'})
         except Exception as exc:
-            _logger.warning('Could not fetch Meta sender profile %s: %s', psid, exc)
+            safe = self.account_id._sanitize_error(exc, self._subscription_secrets())
+            masked = ('%s…' % str(psid)[:4]) if psid else '?'
+            _logger.warning('Could not fetch Meta sender profile %s: %s', masked, safe)
             return False
         full = ' '.join(p for p in (data.get('first_name'), data.get('last_name')) if p)
         return full or data.get('name') or False
 
+    def _subscription_secrets(self):
+        self.ensure_one()
+        return [self.page_access_token, self.account_id.user_access_token,
+                self.account_id.app_secret]
+
+    def _write_subscription_state(self, status, error=False):
+        self.write({
+            'subscribed': status == 'verified',
+            'subscription_status': status,
+            'subscription_checked_at': fields.Datetime.now(),
+            'subscription_error': error or False,
+        })
+
+    def _verify_subscription(self):
+        """Confirm via GET that our app is subscribed to this page with
+        every required field. Persists the outcome and returns
+        ``(status, error)`` — it never raises after writing state,
+        because raising would roll back the persisted fields."""
+        self.ensure_one()
+        account = self.account_id
+        try:
+            data = account._request(
+                'GET', '%s/subscribed_apps' % self.meta_page_id,
+                token=self.page_access_token,
+                params={'fields': 'id,name,subscribed_fields'})
+        except Exception as exc:
+            safe = account._sanitize_error(exc, self._subscription_secrets())
+            self._write_subscription_state('failed', safe)
+            return 'failed', safe
+        apps = data.get('data') or []
+        ours = next((a for a in apps if str(a.get('id')) == str(account.app_id)), None)
+        if not ours:
+            error = _('Our Meta app (ID %s) is not subscribed to this page.') % account.app_id
+            self._write_subscription_state('failed', error)
+            return 'failed', error
+        present = ours.get('subscribed_fields') or []
+        if isinstance(present, str):
+            present = [f.strip() for f in present.split(',') if f.strip()]
+        missing = [f for f in REQUIRED_SUBSCRIPTION_FIELDS if f not in present]
+        if missing:
+            error = _('The app is subscribed but missing required fields: %s') % ', '.join(missing)
+            self._write_subscription_state('incomplete', error)
+            return 'incomplete', error
+        self._write_subscription_state('verified')
+        return 'verified', False
+
+    def _subscription_notification(self, status, error=False):
+        if status == 'verified':
+            notif_type, message = 'success', _(
+                'Subscription verified: the app is subscribed with all required fields.')
+        elif status == 'incomplete':
+            notif_type, message = 'warning', error
+        else:
+            notif_type, message = 'danger', error
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Meta Page Subscription'),
+                'message': message or _('Unknown subscription state.'),
+                'type': notif_type,
+                'sticky': notif_type != 'success',
+            },
+        }
+
+    def action_check_subscription(self):
+        self.ensure_one()
+        status, error = self._verify_subscription()
+        return self._subscription_notification(status, error)
+
     def action_subscribe_webhook(self):
-        for rec in self:
-            data = rec.account_id._request('POST', f'{rec.meta_page_id}/subscribed_apps', token=rec.page_access_token,
-                                           data={'subscribed_fields': 'leadgen,messages,messaging_postbacks'})
-            if data.get('success'):
-                rec.subscribed = True
-        return True
+        self.ensure_one()
+        account = self.account_id
+        try:
+            account._request('POST', '%s/subscribed_apps' % self.meta_page_id,
+                             token=self.page_access_token,
+                             data={'subscribed_fields': ','.join(REQUIRED_SUBSCRIPTION_FIELDS)})
+        except Exception as exc:
+            # Persist the failure instead of raising: a raised exception
+            # would roll back the status fields with the request.
+            safe = account._sanitize_error(exc, self._subscription_secrets())
+            self._write_subscription_state('failed', safe)
+            return self._subscription_notification('failed', safe)
+        status, error = self._verify_subscription()
+        return self._subscription_notification(status, error)
 
     def action_sync_forms(self):
         Form = self.env['meta.form']

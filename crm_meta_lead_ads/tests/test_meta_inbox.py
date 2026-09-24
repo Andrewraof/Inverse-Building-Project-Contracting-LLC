@@ -1,3 +1,6 @@
+import hashlib
+import hmac
+import json
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -274,6 +277,29 @@ class TestMetaInbox(TransactionCase):
             'odoo.addons.crm_meta_lead_ads.models.meta_account.requests.request',
             return_value=FakeResponse())
 
+    def _patch_graph(self, routes):
+        """Fake Meta Graph API responses keyed by (method, url suffix)."""
+
+        class FakeResponse:
+            def __init__(self, status, payload):
+                self.status_code = status
+                self._payload = payload
+                self.content = b'x'
+                self.text = str(payload)
+
+            def json(self):
+                return self._payload
+
+        def fake_request(method, url, **kwargs):
+            for (route_method, suffix), (status, payload) in routes.items():
+                if method == route_method and url.endswith(suffix):
+                    return FakeResponse(status, payload)
+            raise AssertionError('Unexpected Meta API call: %s %s' % (method, url))
+
+        return patch(
+            'odoo.addons.crm_meta_lead_ads.models.meta_account.requests.request',
+            side_effect=fake_request)
+
     def test_reply_rejects_empty_text(self):
         conversation = self._reply_ready_conversation('reply-empty')
         with self.assertRaises(UserError):
@@ -316,7 +342,11 @@ class TestMetaInbox(TransactionCase):
             'crm_meta_lead_ads.inbox_default_user_id', self.env.user.id)
         conversation = self._reply_ready_conversation('reply-customer')
         with self._patch_send_api():
-            message = conversation.action_send_reply('Reply text')
+            result = conversation.action_send_reply('Reply text')
+        self.assertEqual(result['tag'], 'display_notification')
+        self.assertEqual(result['params']['type'], 'success')
+        message = self.Message.search([
+            ('conversation_id', '=', conversation.id), ('direction', '=', 'outbound')])
         self.assertEqual(message.direction, 'outbound')
         self.assertEqual(message.send_state, 'sent')
         self.assertEqual(message.meta_message_id, 'm.out.1')
@@ -335,16 +365,33 @@ class TestMetaInbox(TransactionCase):
         conversation = self._reply_ready_conversation('reply-fail')
         error_payload = {'error': {'code': 190, 'message': 'Invalid token %s' % leak}}
         with self._patch_send_api(payload=error_payload, status=400):
-            with self.assertRaises(UserError) as ctx:
-                conversation.action_send_reply('hello again')
+            result = conversation.action_send_reply('hello again')
         self.page.write({'page_access_token': 'token'})
         self.account.state = 'connected'
-        self.assertNotIn(leak, str(ctx.exception))
+        self.assertEqual(result['tag'], 'display_notification')
+        self.assertEqual(result['params']['type'], 'danger')
+        self.assertNotIn(leak, str(result))
         failed = self.Message.search([
             ('conversation_id', '=', conversation.id), ('direction', '=', 'outbound')])
         self.assertEqual(len(failed), 1)
         self.assertEqual(failed.send_state, 'failed')
         self.assertNotIn(leak, failed.failure_reason or '')
+
+    def test_reply_failure_persists_by_design_without_exception(self):
+        # Anti-rollback contract: once the failed outbound message is
+        # written, the action must return a notification instead of
+        # raising, because a raised exception would roll back the write
+        # when the RPC request ends. This test documents that intent.
+        conversation = self._reply_ready_conversation('reply-rollback')
+        error_payload = {'error': {'code': 100, 'message': 'policy block'}}
+        with self._patch_send_api(payload=error_payload, status=400):
+            result = conversation.action_send_reply('persisted failure')
+        self.assertEqual(result['params']['type'], 'danger')
+        failed = self.Message.search([
+            ('conversation_id', '=', conversation.id),
+            ('direction', '=', 'outbound'), ('send_state', '=', 'failed')])
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(failed.message_text, 'persisted failure')
 
     def test_inbox_action_and_views_load(self):
         action = self.env.ref('crm_meta_lead_ads.action_meta_conversation')
@@ -407,3 +454,180 @@ class TestMetaInbox(TransactionCase):
         self.assertEqual(action['res_model'], 'crm.lead')
         self.assertEqual(action['res_id'], lead.id)
         self.assertEqual(action['view_mode'], 'form')
+
+    # --- Subscription verification (meta.page) ---
+
+    def test_subscribe_verified_sets_subscribed(self):
+        routes = {
+            ('POST', '/100/subscribed_apps'): (200, {'success': True}),
+            ('GET', '/100/subscribed_apps'): (200, {'data': [
+                {'id': 'other-app', 'subscribed_fields': ['leadgen']},
+                {'id': 'app', 'name': 'App',
+                 'subscribed_fields': ['leadgen', 'messages', 'messaging_postbacks']},
+            ]}),
+        }
+        with self._patch_graph(routes):
+            self.page.action_subscribe_webhook()
+        self.assertTrue(self.page.subscribed)
+        self.assertEqual(self.page.subscription_status, 'verified')
+        self.assertTrue(self.page.subscription_checked_at)
+        self.assertFalse(self.page.subscription_error)
+
+    def test_subscribe_app_missing_marks_failed(self):
+        routes = {
+            ('POST', '/100/subscribed_apps'): (200, {'success': True}),
+            ('GET', '/100/subscribed_apps'): (200, {'data': [
+                {'id': 'other-app',
+                 'subscribed_fields': ['leadgen', 'messages', 'messaging_postbacks']},
+            ]}),
+        }
+        with self._patch_graph(routes):
+            result = self.page.action_subscribe_webhook()
+        self.assertEqual(result['tag'], 'display_notification')
+        self.assertEqual(result['params']['type'], 'danger')
+        self.assertFalse(self.page.subscribed)
+        self.assertEqual(self.page.subscription_status, 'failed')
+        self.assertIn('not subscribed', self.page.subscription_error)
+
+    def test_subscribe_post_failure_persists_state(self):
+        routes = {
+            ('POST', '/100/subscribed_apps'): (400, {'error': {
+                'message': 'cannot subscribe'}}),
+        }
+        with self._patch_graph(routes):
+            result = self.page.action_subscribe_webhook()
+        self.assertEqual(result['params']['type'], 'danger')
+        self.assertEqual(self.page.subscription_status, 'failed')
+        self.assertIn('cannot subscribe', self.page.subscription_error)
+
+    def test_check_subscription_incomplete_when_field_missing(self):
+        routes = {
+            ('GET', '/100/subscribed_apps'): (200, {'data': [
+                {'id': 'app', 'subscribed_fields': ['leadgen', 'messaging_postbacks']},
+            ]}),
+        }
+        with self._patch_graph(routes):
+            result = self.page.action_check_subscription()
+        self.assertEqual(result['tag'], 'display_notification')
+        self.assertEqual(result['params']['type'], 'warning')
+        self.assertFalse(self.page.subscribed)
+        self.assertEqual(self.page.subscription_status, 'incomplete')
+        self.assertIn('messages', self.page.subscription_error)
+
+    def test_check_subscription_get_failure_is_sanitized(self):
+        self.page.write({'page_access_token': 'pagetok-LEAK-999'})
+        routes = {
+            ('GET', '/100/subscribed_apps'): (400, {'error': {
+                'message': 'invalid token pagetok-LEAK-999'}}),
+        }
+        with self._patch_graph(routes):
+            result = self.page.action_check_subscription()
+        self.page.write({'page_access_token': 'token'})
+        self.assertEqual(result['params']['type'], 'danger')
+        self.assertEqual(self.page.subscription_status, 'failed')
+        self.assertNotIn('pagetok-LEAK-999', str(result))
+        self.assertNotIn('pagetok-LEAK-999', self.page.subscription_error or '')
+
+    def test_subscription_secrets_never_leak(self):
+        self.account.write({
+            'user_access_token': 'usertok-LEAK-111', 'app_secret': 'appsecret-LEAK-222'})
+        self.page.write({'page_access_token': 'pagetok-LEAK-333'})
+        routes = {
+            ('GET', '/100/subscribed_apps'): (400, {'error': {
+                'message': 'usertok-LEAK-111 appsecret-LEAK-222 pagetok-LEAK-333'}}),
+        }
+        with self._patch_graph(routes):
+            result = self.page.action_check_subscription()
+        self.account.write({'user_access_token': False, 'app_secret': 'secret'})
+        self.page.write({'page_access_token': 'token'})
+        blob = str(result) + (self.page.subscription_error or '')
+        for leak in ('usertok-LEAK-111', 'appsecret-LEAK-222', 'pagetok-LEAK-333'):
+            self.assertNotIn(leak, blob)
+
+    # --- Webhook routing diagnostics (controller) ---
+
+    def _dispatch_messaging_event(self, event, entry_page_id='100'):
+        from odoo.addons.crm_meta_lead_ads.controllers.main import MetaLeadController
+        controller = MetaLeadController()
+        with patch('odoo.addons.crm_meta_lead_ads.controllers.main.request') as fake_request:
+            fake_request.env = self.env
+            controller._handle_messaging_event(
+                self.env['meta.page'].sudo(), self.env['meta.conversation'].sudo(),
+                None, entry_page_id, event)
+
+    def test_webhook_event_with_matching_page_creates_conversation(self):
+        with patch.object(type(self.page), '_fetch_sender_name', return_value='Webhook Customer'):
+            self._dispatch_messaging_event(
+                self._messaging_event(mid='ctrl-1', psid='ctrl-customer'))
+        conv = self.Conversation.search([
+            ('page_id', '=', self.page.id), ('psid', '=', 'ctrl-customer')])
+        self.assertEqual(len(conv), 1)
+        self.assertEqual(conv.meta_message_ids.meta_message_id, 'ctrl-1')
+
+    def test_webhook_event_with_unknown_page_is_ignored(self):
+        event = self._messaging_event(mid='ctrl-404', psid='ghost')
+        event['recipient'] = {'id': '999999999'}
+        with self.assertLogs(
+                'odoo.addons.crm_meta_lead_ads.controllers.main', level='WARNING') as logs:
+            self._dispatch_messaging_event(event, entry_page_id='999999999')
+        self.assertIn('no configured page matches', '\n'.join(logs.output))
+        self.assertFalse(self.Conversation.search([('psid', '=', 'ghost')]))
+        self.assertFalse(self.Message.search([('meta_message_id', '=', 'ctrl-404')]))
+
+    def _receive_webhook_payload(self, payload, secret='app-secret'):
+        from odoo.addons.crm_meta_lead_ads.controllers.main import MetaLeadController
+        controller = MetaLeadController()
+        raw = json.dumps(payload).encode()
+        signature = 'sha256=' + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+        with patch('odoo.addons.crm_meta_lead_ads.controllers.main.request') as fake_request:
+            fake_request.env = self.env
+            fake_request.httprequest.get_data.return_value = raw
+            fake_request.httprequest.headers.get.return_value = signature
+            fake_request.httprequest.get_json.return_value = payload
+            fake_request.make_response.side_effect = (
+                lambda body, status=200, headers=None: (body, status))
+            return controller._receive_webhook(secret)
+
+    def test_receive_webhook_unknown_page_still_returns_200(self):
+        payload = {
+            'object': 'page',
+            'entry': [{
+                'id': '999999999',
+                'messaging': [{
+                    'sender': {'id': 'ghost'},
+                    'recipient': {'id': '999999999'},
+                    'timestamp': 1727172000000,
+                    'message': {'mid': 'full-404', 'text': 'secret body not logged'},
+                }],
+            }],
+        }
+        with self.assertLogs(
+                'odoo.addons.crm_meta_lead_ads.controllers.main', level='INFO') as logs:
+            body, status = self._receive_webhook_payload(payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(body, 'EVENT_RECEIVED')
+        output = '\n'.join(logs.output)
+        self.assertIn('no configured page matches', output)
+        self.assertNotIn('secret body not logged', output)
+        self.assertFalse(self.Conversation.search([('psid', '=', 'ghost')]))
+        self.assertFalse(self.Message.search([('meta_message_id', '=', 'full-404')]))
+
+    # --- Strict outbound confirmation ---
+
+    def test_reply_without_message_id_is_failed(self):
+        conversation = self._reply_ready_conversation('reply-nomsgid')
+        conversation.reply_draft = 'hello'
+        with self._patch_send_api(payload={'recipient_id': 'reply-nomsgid'}):
+            result = conversation.action_reply_from_form()
+        self.assertEqual(result['tag'], 'display_notification')
+        self.assertEqual(result['params']['type'], 'danger')
+        self.assertIn('message_id', result['params']['message'])
+        failed = self.Message.search([
+            ('conversation_id', '=', conversation.id), ('direction', '=', 'outbound')])
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(failed.send_state, 'failed')
+        self.assertIn('message_id', failed.failure_reason)
+        conversation.invalidate_recordset()
+        self.assertEqual(conversation.unread_count, 1)
+        # The draft is kept on failure so the user can retry.
+        self.assertEqual(conversation.reply_draft, 'hello')

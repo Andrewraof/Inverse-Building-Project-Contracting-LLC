@@ -11,6 +11,13 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
+def _safe_log_value(value, limit=64):
+    """Render an external (Meta-supplied) value safe for log lines:
+    printable characters only, no CR/LF, length-capped."""
+    text = ''.join(ch for ch in str(value or '') if ch.isprintable() and ord(ch) not in (10, 13))
+    return text[:limit]
+
+
 
 class MetaLeadController(http.Controller):
 
@@ -119,6 +126,8 @@ class MetaLeadController(http.Controller):
         if not hmac.compare_digest(signature, expected):
             return request.make_response('Forbidden', status=403)
         payload = request.httprequest.get_json(silent=True) or {}
+        _logger.info('Meta webhook received: object=%s, entries=%s.',
+                     payload.get('object'), len(payload.get('entry') or []))
         if payload.get('object') != 'page':
             return request.make_response('EVENT_RECEIVED', status=200)
 
@@ -127,6 +136,8 @@ class MetaLeadController(http.Controller):
         Conversation = request.env['meta.conversation'].sudo()
         for entry in payload.get('entry', []):
             entry_page_id = str(entry.get('id') or '')
+            _logger.info('Meta webhook entry: id=%s, messaging events=%s.',
+                         _safe_log_value(entry_page_id), len(entry.get('messaging') or []))
             for change in entry.get('changes', []):
                 if change.get('field') != 'leadgen':
                     continue
@@ -147,7 +158,8 @@ class MetaLeadController(http.Controller):
 
     def _handle_messaging_event(self, Page, Conversation, account, entry_page_id, event):
         message = event.get('message') or {}
-        if message.get('is_echo') or not message.get('mid'):
+        mid = message.get('mid')
+        if message.get('is_echo') or not mid:
             return
         page_meta_id = str((event.get('recipient') or {}).get('id') or entry_page_id)
         if not page_meta_id:
@@ -155,7 +167,15 @@ class MetaLeadController(http.Controller):
         domain = [('meta_page_id', '=', page_meta_id), ('active', '=', True)]
         if account:
             domain.append(('account_id', '=', account.id))
-        for page in Page.search(domain):
+        pages = Page.search(domain)
+        if not pages:
+            _logger.warning(
+                'Meta messaging event ignored: no configured page matches recipient/page ID %s (mid=%s).',
+                _safe_log_value(page_meta_id), _safe_log_value(mid))
+            return
+        _logger.info('Meta messaging event: recipient/page ID %s matched %s Odoo page(s) (mid=%s).',
+                     _safe_log_value(page_meta_id), len(pages), _safe_log_value(mid))
+        for page in pages:
             try:
                 with request.env.cr.savepoint():
                     Conversation.with_company(page.company_id)._record_inbound_message(page, event)

@@ -1,14 +1,14 @@
 <odoo>
     <record id="view_meta_page_list" model="ir.ui.view">
         <field name="name">meta.page.list</field><field name="model">meta.page</field>
-        <field name="arch" type="xml"><list><field name="name"/><field name="company_id" groups="base.group_multi_company"/><field name="meta_page_id"/><field name="sync_enabled"/><field name="subscribed"/><field name="last_sync_at"/></list></field>
+        <field name="arch" type="xml"><list><field name="name"/><field name="company_id" groups="base.group_multi_company"/><field name="meta_page_id"/><field name="sync_enabled"/><field name="subscribed"/><field name="subscription_status"/><field name="last_sync_at"/></list></field>
     </record>
     <record id="view_meta_page_form" model="ir.ui.view">
         <field name="name">meta.page.form</field><field name="model">meta.page</field>
         <field name="arch" type="xml">
             <form string="Meta Page">
-                <header><button name="action_subscribe_webhook" type="object" string="Subscribe Webhook" class="btn-primary"/><button name="action_sync_forms" type="object" string="Sync Forms"/></header>
-                <sheet><group><group><field name="name"/><field name="meta_page_id"/><field name="account_id"/><field name="company_id" groups="base.group_multi_company"/></group><group><field name="active"/><field name="sync_enabled"/><field name="subscribed" readonly="1"/><field name="page_permissions" readonly="1"/><field name="last_sync_at" readonly="1"/></group></group>
+                <header><button name="action_subscribe_webhook" type="object" string="Subscribe Webhook" class="btn-primary"/><button name="action_check_subscription" type="object" string="Check Subscription"/><button name="action_sync_forms" type="object" string="Sync Forms"/></header>
+                <sheet><group><group><field name="name"/><field name="meta_page_id"/><field name="account_id"/><field name="company_id" groups="base.group_multi_company"/></group><group><field name="active"/><field name="sync_enabled"/><field name="subscribed" readonly="1"/><field name="subscription_status" readonly="1"/><field name="subscription_checked_at" readonly="1"/><field name="subscription_error" readonly="1"/><field name="page_permissions" readonly="1"/><field name="last_sync_at" readonly="1"/></group></group>
                 <group string="Credentials"><field name="page_access_token" password="True"/></group>
                 <notebook><page string="Forms"><field name="form_ids" readonly="1"><list><field name="name"/><field name="status"/><field name="polling_enabled"/><field name="last_sync_date"/></list></field></page></notebook></sheet>
             </form>

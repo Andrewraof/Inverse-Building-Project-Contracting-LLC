@@ -151,14 +151,31 @@ class MetaConversation(models.Model):
 
     def action_send_reply(self, text):
         self.ensure_one()
-        self._send_reply(text)
-        return True
+        result = self._send_reply(text)
+        if result['error']:
+            return self._reply_notification('danger', _('Meta rejected the reply: %s') % result['error'])
+        return self._reply_notification('success', _('Reply sent to the customer.'))
 
     def action_reply_from_form(self):
         self.ensure_one()
-        self._send_reply(self.reply_draft)
+        result = self._send_reply(self.reply_draft)
+        if result['error']:
+            # Keep reply_draft so the user can fix and retry.
+            return self._reply_notification('danger', _('Meta rejected the reply: %s') % result['error'])
         self.reply_draft = False
-        return True
+        return self._reply_notification('success', _('Reply sent to the customer.'))
+
+    def _reply_notification(self, notif_type, message):
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Meta Inbox'),
+                'message': message,
+                'type': notif_type,
+                'sticky': notif_type != 'success',
+            },
+        }
 
     def action_assign_to_me(self):
         self.write({'assigned_user_id': self.env.user.id})
@@ -243,6 +260,13 @@ class MetaConversation(models.Model):
         return account
 
     def _send_reply(self, text):
+        """Send a Messenger reply. Returns ``{'message': record, 'error': False}``
+        on success, or ``{'message': False, 'error': reason}`` after persisting
+        a failed outbound message. Delivery failures must NOT raise: raising
+        after the failed message is written would roll it back with the
+        request, hiding the failure from the database. Pre-send validation
+        (closed conversation, expired window, empty text, ...) raises
+        UserError as before because nothing has been written yet."""
         self.ensure_one()
         text = (text or '').strip()
         if not text:
@@ -260,9 +284,14 @@ class MetaConversation(models.Model):
             reason = account._sanitize_error(
                 exc, [token, account.user_access_token, account.app_secret])
             self._record_outbound_message(text, send_state='failed', failure_reason=reason)
-            raise UserError(_('Meta rejected the reply: %s') % reason) from exc
+            return {'message': False, 'error': reason}
+        message_id = str(data.get('message_id') or '').strip() if isinstance(data, dict) else ''
+        if not message_id:
+            reason = _('Meta response did not include message_id')
+            self._record_outbound_message(text, send_state='failed', failure_reason=reason)
+            return {'message': False, 'error': reason}
         message = self._record_outbound_message(
-            text, send_state='sent', meta_message_id=data.get('message_id') or data.get('id'))
+            text, send_state='sent', meta_message_id=message_id)
         self.write({
             'state': 'open',
             'last_message_at': fields.Datetime.now(),
@@ -270,7 +299,7 @@ class MetaConversation(models.Model):
             'unread_count': 0,
         })
         self._close_inbox_activity()
-        return message
+        return {'message': message, 'error': False}
 
     def _record_outbound_message(self, text, send_state='sent', meta_message_id=None, failure_reason=None):
         self.ensure_one()
