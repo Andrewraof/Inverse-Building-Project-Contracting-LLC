@@ -3,3 +3,4 @@ from . import test_meta_inbox
 from . import test_meta_lead_attribution
 from . import test_meta_polling
 from . import test_meta_dedup
+from . import test_meta_form_sync

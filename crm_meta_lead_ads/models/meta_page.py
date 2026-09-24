@@ -8,6 +8,7 @@ from odoo.exceptions import UserError, ValidationError
 _logger = logging.getLogger(__name__)
 
 REQUIRED_SUBSCRIPTION_FIELDS = ('leadgen', 'messages', 'messaging_postbacks')
+FORM_SYNC_MAX_PAGES = 10
 
 
 class MetaPage(models.Model):
@@ -224,18 +225,91 @@ class MetaPage(models.Model):
         status, error = self._verify_subscription()
         return self._subscription_notification(status, error)
 
+    def _sync_form_vals(self, item):
+        self.ensure_one()
+        return {
+            'name': item.get('name') or item['id'], 'meta_form_id': item['id'], 'page_id': self.id,
+            'company_id': self.company_id.id, 'status': item.get('status'),
+            'questions_json': item.get('questions') or [],
+            'active': item.get('status') != 'ARCHIVED',
+        }
+
+    def _upsert_form_from_meta(self, Form, item):
+        """Upsert one leadgen form keyed by (meta_form_id, company_id);
+        returns 'created' or 'updated'. ``Form`` must already carry
+        ``active_test=False`` so archived forms are found and updated in
+        place instead of colliding with the unique constraint. Only sync
+        fields are written — mappings, sales team, assigned user, lead
+        type, polling settings and last_sync_date are never touched. The
+        unique constraint stays the final guard against a concurrent sync:
+        on IntegrityError the competitor row is re-fetched and updated,
+        and any error without a competitor is re-raised."""
+        self.ensure_one()
+        vals = self._sync_form_vals(item)
+        domain = [('meta_form_id', '=', item['id']), ('company_id', '=', self.company_id.id)]
+        form = Form.search(domain, limit=1)
+        if form:
+            form.write(vals)
+            return 'updated'
+        try:
+            with self.env.cr.savepoint():
+                Form.create(vals)
+            return 'created'
+        except IntegrityError:
+            form = Form.search(domain, limit=1)
+            if not form:
+                raise
+            form.write(vals)
+            return 'updated'
+
     def action_sync_forms(self):
-        Form = self.env['meta.form']
+        Form = self.env['meta.form'].with_context(active_test=False)
         for rec in self:
-            data = rec.account_id._request('GET', f'{rec.meta_page_id}/leadgen_forms', token=rec.page_access_token,
-                                           params={'fields': 'id,name,status,created_time,questions', 'limit': 100})
-            for item in data.get('data', []):
-                vals = {
-                    'name': item.get('name') or item['id'], 'meta_form_id': item['id'], 'page_id': rec.id,
-                    'company_id': rec.company_id.id, 'status': item.get('status'), 'questions_json': item.get('questions') or [],
-                    'active': item.get('status') != 'ARCHIVED',
-                }
-                form = Form.search([('meta_form_id', '=', item['id']), ('company_id', '=', rec.company_id.id)], limit=1)
-                form.write(vals) if form else Form.create(vals)
+            fetched = created = updated = archived = pages = 0
+            seen_cursors, after = set(), None
+            try:
+                while True:
+                    params = {'fields': 'id,name,status,created_time,questions', 'limit': 100}
+                    if after:
+                        params['after'] = after
+                    data = rec.account_id._request(
+                        'GET', f'{rec.meta_page_id}/leadgen_forms',
+                        token=rec.page_access_token, params=params)
+                    pages += 1
+                    items = data.get('data') or []
+                    fetched += len(items)
+                    for item in items:
+                        if not item.get('id'):
+                            continue
+                        if rec._upsert_form_from_meta(Form, item) == 'created':
+                            created += 1
+                        else:
+                            updated += 1
+                        if item.get('status') == 'ARCHIVED':
+                            archived += 1
+                    cursors = (data.get('paging') or {}).get('cursors') or {}
+                    new_after = cursors.get('after')
+                    if not new_after or not items:
+                        break
+                    if new_after in seen_cursors:
+                        _logger.warning(
+                            'Meta form sync for page %s: repeated pagination cursor; stopping.',
+                            rec.meta_page_id)
+                        break
+                    if pages >= FORM_SYNC_MAX_PAGES:
+                        _logger.warning(
+                            'Meta form sync for page %s: page limit %s reached; stopping.',
+                            rec.meta_page_id, FORM_SYNC_MAX_PAGES)
+                        break
+                    seen_cursors.add(new_after)
+                    after = new_after
+            except IntegrityError:
+                raise
+            except Exception as exc:
+                safe = rec.account_id._sanitize_error(exc, rec._subscription_secrets())
+                raise UserError(_('Meta form sync failed: %s') % safe) from exc
             rec.last_sync_at = fields.Datetime.now()
+            _logger.info(
+                'Meta form sync page %s: fetched=%s created=%s updated=%s archived=%s pages=%s',
+                rec.meta_page_id, fetched, created, updated, archived, pages)
         return True
