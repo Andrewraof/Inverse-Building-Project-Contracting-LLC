@@ -1,0 +1,9 @@
+<odoo>
+    <!-- Force-update on existing databases: ir_cron_data.xml is noupdate="1",
+         so this record re-applies the 5-minute polling interval on upgrade. -->
+    <record id="ir_cron_poll_meta_leads" model="ir.cron">
+        <field name="interval_number">5</field>
+        <field name="interval_type">minutes</field>
+        <field name="active">True</field>
+    </record>
+</odoo>

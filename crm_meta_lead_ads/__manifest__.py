@@ -11,6 +11,7 @@
         'security/ir.model.access.csv',
         'data/utm_data.xml',
         'data/ir_cron_data.xml',
+        'data/ir_cron_update.xml',
         'views/meta_account_views.xml',
         'views/meta_page_views.xml',
         'views/meta_form_views.xml',

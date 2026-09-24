@@ -9,6 +9,6 @@
         <field name="name">Meta Lead Ads: Recovery Polling</field>
         <field name="model_id" ref="model_meta_lead_queue"/>
         <field name="state">code</field><field name="code">model._cron_poll_meta_leads()</field>
-        <field name="interval_number">1</field><field name="interval_type">hours</field><field name="active">True</field>
+        <field name="interval_number">5</field><field name="interval_type">minutes</field><field name="active">True</field>
     </record>
 </odoo>
