@@ -51,8 +51,8 @@
                     </group>
                     <notebook>
                         <page string="Messages" name="messages">
-                            <field name="meta_message_ids" readonly="1" context="{'default_order': 'sent_at asc, id asc'}">
-                                <list create="0" edit="0" delete="0">
+                            <field name="meta_message_ids" readonly="1">
+                                <list create="0" edit="0" delete="0" default_order="sent_at asc, id asc">
                                     <field name="sent_at"/>
                                     <field name="direction" widget="badge"/>
                                     <field name="sender_name"/>
