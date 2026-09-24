@@ -74,7 +74,7 @@ class MetaPage(models.Model):
     def action_subscribe_webhook(self):
         for rec in self:
             data = rec.account_id._request('POST', f'{rec.meta_page_id}/subscribed_apps', token=rec.page_access_token,
-                                           data={'subscribed_fields': 'leadgen'})
+                                           data={'subscribed_fields': 'leadgen,messages,messaging_postbacks'})
             if data.get('success'):
                 rec.subscribed = True
         return True
