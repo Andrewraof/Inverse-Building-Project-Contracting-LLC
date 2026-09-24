@@ -7,7 +7,46 @@ from odoo import http, fields
 from odoo.http import request
 
 
+PRIVACY_POLICY_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy - Inverse Group</title>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.65; color: #24313d; margin: 0; background: #f6f7f9; }
+    main { max-width: 820px; margin: 40px auto; padding: 36px; background: #fff; border-radius: 12px; }
+    h1, h2 { color: #14213d; } h1 { margin-top: 0; }
+    a { color: #1264a3; } footer { margin-top: 32px; color: #5d6873; font-size: 14px; }
+  </style>
+</head>
+<body><main>
+  <h1>Privacy Policy - Inverse Group</h1>
+  <p><strong>Effective date:</strong> September 21, 2026</p>
+  <p>Inverse Group respects your privacy. This policy explains how information submitted through our Meta lead forms and messaging channels is handled in our Odoo CRM system.</p>
+  <h2>Information we collect</h2>
+  <p>We may collect your name, phone number, email address, and the answers or messages you choose to submit through Meta lead forms or Meta messaging services.</p>
+  <h2>How we use information</h2>
+  <p>We use this information to contact you, respond to your request, follow up on your enquiry, and manage prospective customer relationships in Odoo CRM.</p>
+  <h2>Sharing</h2>
+  <p>We do not sell personal information. We may share it only with Meta, Odoo, and service providers necessary to operate our business and deliver the requested service, subject to appropriate safeguards.</p>
+  <h2>Retention and security</h2>
+  <p>We retain personal information only for a reasonable period needed for the purposes above and apply reasonable administrative and technical safeguards to protect it.</p>
+  <h2>Your rights</h2>
+  <p>You may request access to, correction of, or deletion of your personal information by contacting us through our <a href="/contactus">Contact Us page</a>.</p>
+  <footer>Inverse Building Projects Contracting LLC</footer>
+</main></body></html>"""
+
+
 class MetaComplianceController(http.Controller):
+
+    @http.route('/meta_crm/privacy', type='http', auth='public', methods=['GET'],
+                csrf=False, save_session=False)
+    def privacy_policy(self, **kw):
+        return request.make_response(
+            PRIVACY_POLICY_HTML,
+            headers=[('Content-Type', 'text/html; charset=utf-8')],
+        )
 
     def _decode_signed_request(self, signed_request, secret):
         try:

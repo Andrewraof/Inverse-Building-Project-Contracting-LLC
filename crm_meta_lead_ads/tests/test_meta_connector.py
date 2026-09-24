@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from odoo.exceptions import UserError, ValidationError
 from odoo.tests.common import TransactionCase
+from odoo.addons.crm_meta_lead_ads.controllers.compliance import PRIVACY_POLICY_HTML
 
 
 class TestMetaConnector(TransactionCase):
@@ -25,6 +26,12 @@ class TestMetaConnector(TransactionCase):
         q1 = self.env['meta.lead.queue'].enqueue_event(self.env.company, self.page, 'L1', self.form.meta_form_id, {})
         q2 = self.env['meta.lead.queue'].enqueue_event(self.env.company, self.page, 'L1', self.form.meta_form_id, {})
         self.assertEqual(q1.id, q2.id)
+
+    def test_privacy_policy_contains_required_disclosures(self):
+        self.assertIn('Privacy Policy - Inverse Group', PRIVACY_POLICY_HTML)
+        self.assertIn('Information we collect', PRIVACY_POLICY_HTML)
+        self.assertIn('do not sell personal information', PRIVACY_POLICY_HTML)
+        self.assertIn('/contactus', PRIVACY_POLICY_HTML)
 
     def test_default_mapping_generation(self):
         self.form.action_generate_default_mappings()

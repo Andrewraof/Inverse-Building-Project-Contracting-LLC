@@ -19,6 +19,7 @@
 - إنشاء CRM Leads مع مصادر UTM (Facebook / Instagram).
 - تسجيل رسائل Messenger الواردة (اسم المرسل + الرسالة الافتتاحية).
 - صفحة حذف بيانات المستخدم `/meta_crm/data_deletion` (متطلب Meta).
+- صفحة سياسة خصوصية عامة `/meta_crm/privacy` (متطلب نشر تطبيق Meta).
 - دعم multi-company مع record rules، وتنبيه نشاط عند انتهاء التوكن.
 - CI/CD: من GitHub Actions إلى السيرفر تلقائيًا.
 
