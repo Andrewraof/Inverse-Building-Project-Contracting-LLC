@@ -87,22 +87,7 @@ class MetaLeadController(http.Controller):
 
         Page = request.env['meta.page'].sudo().with_company(company)
         meta_pages = pages_data.get('data', [])
-        results = []
-        synced, failed = 0, 0
-        for p in meta_pages:
-            label = f"{p.get('name') or '?'} ({p.get('id') or 'no-id'})"
-            if not p.get('id') or not p.get('access_token'):
-                results.append((label, 'skipped: Meta returned no access token for this page'))
-                continue
-            try:
-                with request.env.cr.savepoint():
-                    Page._upsert_from_meta(company, account, p)
-                synced += 1
-                results.append((label, 'synced'))
-            except Exception as exc:
-                failed += 1
-                results.append((label, f'failed: {exc}'))
-                _logger.exception('Meta page sync failed for page %s; continuing with remaining pages.', label)
+        synced, failed, results = Page._upsert_pages_bulk(company, account, meta_pages)
         _logger.info('Meta OAuth page sync for account %s: Meta returned %s page(s), %s synced, %s failed.',
                      account.id, len(meta_pages), synced, failed)
         if not meta_pages:

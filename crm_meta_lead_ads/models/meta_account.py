@@ -54,6 +54,15 @@ class MetaAccount(models.Model):
     def _graph_url(self, path):
         return f"https://graph.facebook.com/{self._api_version()}/{path.lstrip('/')}"
 
+    @api.model
+    def _sanitize_error(self, message, token=None):
+        message = str(message or '')
+        tokens = token if isinstance(token, (list, tuple)) else [token]
+        for tok in tokens:
+            if tok:
+                message = message.replace(str(tok), '***')
+        return message
+
     def _request(self, method, path, token=None, **kwargs):
         self.ensure_one()
         headers = kwargs.pop('headers', {})
@@ -65,18 +74,18 @@ class MetaAccount(models.Model):
             response = requests.request(method, self._graph_url(path), headers=headers, params=params, timeout=timeout, **kwargs)
             data = response.json() if response.content else {}
         except Exception as exc:
-            raise UserError(_('Meta API request failed: %s') % exc) from exc
+            raise UserError(_('Meta API request failed: %s') % self._sanitize_error(exc, token)) from exc
         if response.status_code >= 400 or (isinstance(data, dict) and data.get('error')):
             err = data.get('error', {}) if isinstance(data, dict) else {}
-            self._handle_graph_error(err)
-            raise UserError(_('Meta API error: %s') % (err.get('message') or response.text))
+            self._handle_graph_error(err, token=token)
+            raise UserError(_('Meta API error: %s') % self._sanitize_error(err.get('message') or response.text, token))
         return data
 
-    def _handle_graph_error(self, err):
+    def _handle_graph_error(self, err, token=None):
         self.ensure_one()
         code = err.get('code')
         subcode = err.get('error_subcode')
-        msg = err.get('message') or ''
+        msg = self._sanitize_error(err.get('message') or '', token)
         if code == 190:
             self.write({'state': 'error', 'error_message': f'{code}/{subcode}: {msg}'})
             self.activity_schedule('mail.mail_activity_data_todo', summary=_('Meta token requires re-authentication'), note=msg)
@@ -84,7 +93,10 @@ class MetaAccount(models.Model):
             self.write({'state': 'error', 'error_message': f'{code}: {msg}'})
 
     def action_disconnect(self):
+        Page = self.env['meta.page'].with_context(active_test=False)
         for rec in self:
-            rec.page_ids.write({'active': False, 'sync_enabled': False})
+            Page.search([('account_id', '=', rec.id)]).write({
+                'active': False, 'sync_enabled': False, 'page_access_token': False,
+            })
             rec.write({'state': 'disconnected', 'user_access_token': False, 'error_message': False})
         return True
