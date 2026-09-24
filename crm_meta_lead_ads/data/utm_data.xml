@@ -1,4 +1,5 @@
 <odoo noupdate="1">
     <record id="utm_source_facebook" model="utm.source"><field name="name">Facebook Lead Ads</field></record>
     <record id="utm_source_instagram" model="utm.source"><field name="name">Instagram Lead Ads</field></record>
+    <record id="utm_source_meta_messenger" model="utm.source"><field name="name">Meta Messenger</field></record>
 </odoo>

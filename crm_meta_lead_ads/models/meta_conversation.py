@@ -31,6 +31,7 @@ class MetaConversation(models.Model):
     last_message_preview = fields.Char()
     unread_count = fields.Integer(default=0, readonly=True)
     meta_message_ids = fields.One2many('meta.message', 'conversation_id')
+    reply_draft = fields.Text(string='Reply', store=False)
     active = fields.Boolean(default=True)
 
     _unique_conversation = models.Constraint(
@@ -152,6 +153,66 @@ class MetaConversation(models.Model):
         self.ensure_one()
         self._send_reply(text)
         return True
+
+    def action_reply_from_form(self):
+        self.ensure_one()
+        self._send_reply(self.reply_draft)
+        self.reply_draft = False
+        return True
+
+    def action_assign_to_me(self):
+        self.write({'assigned_user_id': self.env.user.id})
+        return True
+
+    def action_mark_read(self):
+        self.write({'unread_count': 0})
+        self._close_inbox_activity()
+        return True
+
+    def action_close(self):
+        self.write({'state': 'closed'})
+        self._close_inbox_activity()
+        return True
+
+    def action_reopen(self):
+        self.write({'state': 'open'})
+        return True
+
+    def action_create_lead(self):
+        """Create one CRM lead from this conversation and link both sides.
+
+        A conversation can only ever create a single lead; once linked,
+        the form offers ``action_open_lead`` instead."""
+        self.ensure_one()
+        if self.lead_id:
+            raise UserError(_('This conversation is already linked to a lead.'))
+        source = self.env.ref('crm_meta_lead_ads.utm_source_meta_messenger', raise_if_not_found=False)
+        lead = self.env['crm.lead'].create({
+            'name': _('Meta Messenger: %s') % (self.sender_name or self.psid),
+            'type': 'lead',
+            'company_id': self.company_id.id,
+            'user_id': self.assigned_user_id.id or self.env.user.id,
+            'partner_name': self.sender_name or False,
+            'source_id': source.id if source else False,
+            'meta_conversation_id': self.id,
+        })
+        self.lead_id = lead.id
+        lead.message_post(body=_(
+            'Created from Meta Inbox conversation (page: %(page)s, PSID: %(psid)s).',
+            page=self.page_id.name, psid=self.psid))
+        return lead
+
+    def action_open_lead(self):
+        self.ensure_one()
+        if not self.lead_id:
+            raise UserError(_('No lead is linked to this conversation yet.'))
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': 'crm.lead',
+            'res_id': self.lead_id.id,
+            'view_mode': 'form',
+            'target': 'current',
+        }
 
     def _check_reply_allowed(self):
         """Pre-flight checks before calling the Messenger Send API.

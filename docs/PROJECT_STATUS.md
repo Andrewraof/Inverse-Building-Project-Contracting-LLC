@@ -50,6 +50,26 @@
   الحساب (بما فيها المؤرشفة) بالإضافة لتوكن المستخدم، وOAuth
   الجديد يعيد إنشاءها عبر الـ upsert.
 
+## Meta Inbox Conversations (2026-09-24)
+
+- موديل `meta.conversation` لكل (صفحة، PSID) مع `channel=messenger`
+  تهيئةً لـ Instagram لاحقًا، وحالات new/open/pending/closed، وقيد
+  `UNIQUE(page_id, psid)`.
+- رسائل `meta.message` مرتبطة بالمحادثة مع direction وsend_state،
+  والمرفقات تُخزَّن كروابط/بيانات وصفية فقط دون تنزيل سيرفري.
+- الـ webhook الوارد ينشئ/يحدّث المحادثة، idempotent بمعرف الرسالة،
+  ويجدول نشاطًا واحدًا للمسؤول أو المستخدم الافتراضي من الإعدادات.
+- الرد من Odoo عبر Messenger Send API مع حارس نافذة 24 ساعة؛ الفشل
+  يُسجَّل كرسالة `failed` بسبب منقّى من التوكنات.
+- ترحيل `19.0.2.0.0` جمّع الرسائل القديمة في محادثات دون حذف أو
+  تعديل محتواها، ويعيد استخدام المحادثات الموجودة والمؤرشفة.
+- واجهة Odoo قياسية (List/Form/Search) بأزرار Assign وMark Read و
+  Close/Reopen وReply وCreate Lead/Open Lead، مع مصدر UTM
+  «Meta Messenger» وربط متبادل مع الليد.
+- إصلاح نشر حرج: One2many المحادثة أصبح `meta_message_ids` بعد أن
+  تسبب اسم `message_ids` في إسقاط تحديث الموديول (تعارض مع
+  `mail.thread.message_ids`).
+
 ## بيئة الإنتاج
 
 - Odoo 19 Community.

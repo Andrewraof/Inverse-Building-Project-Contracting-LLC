@@ -28,8 +28,9 @@ class TestMetaInbox(TransactionCase):
         cls.Message = cls.env['meta.message']
 
     def _legacy_message(self, psid, mid, text='hello', page=None):
+        page = page or self.page
         return self.Message.create({
-            'company_id': self.env.company.id, 'page_id': (page or self.page).id,
+            'company_id': page.company_id.id, 'page_id': page.id,
             'sender_psid': psid, 'meta_message_id': mid, 'message_text': text,
         })
 
@@ -111,6 +112,48 @@ class TestMetaInbox(TransactionCase):
         self.assertEqual(conv.message_ids._name, 'mail.message')
         posted = conv.message_post(body='inbox note')
         self.assertIn(posted, conv.message_ids)
+
+    def test_link_legacy_messages_mixed_companies(self):
+        company_b = self.env['res.company'].create({'name': 'Inbox Co B'})
+        account_b = self.env['meta.account'].create({
+            'name': 'Inbox Meta B', 'company_id': company_b.id,
+            'app_id': 'app-b', 'app_secret': 'secret-b',
+        })
+        page_b = self.env['meta.page'].create({
+            'name': 'Inbox Page B', 'company_id': company_b.id,
+            'account_id': account_b.id, 'meta_page_id': '201', 'page_access_token': 'token-b',
+        })
+        msg = self._legacy_message('psid-E', 'mid-E1', 'company B text', page=page_b)
+        created = self.Conversation._link_legacy_messages()
+        self.assertEqual(created, 1)
+        msg.invalidate_recordset()
+        self.assertEqual(msg.conversation_id.company_id, company_b)
+        self.assertEqual(msg.conversation_id.page_id, page_b)
+
+    def test_link_legacy_messages_reuses_archived_conversation(self):
+        conv = self.Conversation.create({
+            'company_id': self.env.company.id, 'page_id': self.page.id,
+            'psid': 'psid-F', 'state': 'closed', 'active': False,
+        })
+        msg = self._legacy_message('psid-F', 'mid-F1', 'orphan')
+        created = self.Conversation._link_legacy_messages()
+        self.assertEqual(created, 0)
+        msg.invalidate_recordset()
+        self.assertEqual(msg.conversation_id, conv)
+        self.assertEqual(self.Conversation.with_context(active_test=False).search_count(
+            [('page_id', '=', self.page.id), ('psid', '=', 'psid-F')]), 1)
+
+    def test_link_legacy_messages_preserves_message_content(self):
+        msg = self._legacy_message('psid-G', 'mid-G1', 'original body')
+        sent_at = msg.sent_at
+        received_at = msg.received_at
+        self.Conversation._link_legacy_messages()
+        msg.invalidate_recordset()
+        self.assertEqual(msg.message_text, 'original body')
+        self.assertEqual(msg.sent_at, sent_at)
+        self.assertEqual(msg.received_at, received_at)
+        self.assertEqual(msg.meta_message_id, 'mid-G1')
+        self.assertEqual(msg.sender_psid, 'psid-G')
 
     def test_default_notify_user_setting(self):
         settings = self.env['res.config.settings'].create({
@@ -302,3 +345,65 @@ class TestMetaInbox(TransactionCase):
         self.assertEqual(len(failed), 1)
         self.assertEqual(failed.send_state, 'failed')
         self.assertNotIn(leak, failed.failure_reason or '')
+
+    def test_inbox_action_and_views_load(self):
+        action = self.env.ref('crm_meta_lead_ads.action_meta_conversation')
+        self.assertEqual(action.res_model, 'meta.conversation')
+        self.env.ref('crm_meta_lead_ads.view_meta_conversation_list')
+        self.env.ref('crm_meta_lead_ads.view_meta_conversation_form')
+        search_view = self.env.ref('crm_meta_lead_ads.view_meta_conversation_search')
+        self.assertEqual(action.search_view_id, search_view)
+        for view_type in ('list', 'form', 'search'):
+            arch, _view = self.Conversation.get_view(view_type=view_type)
+            self.assertIn('meta.conversation', arch)
+
+    def test_form_actions_assign_mark_read_close_reopen(self):
+        conversation = self._reply_ready_conversation('form-actions')
+        self.assertEqual(conversation.unread_count, 1)
+        conversation.action_assign_to_me()
+        self.assertEqual(conversation.assigned_user_id, self.env.user)
+        conversation.action_mark_read()
+        self.assertEqual(conversation.unread_count, 0)
+        conversation.action_close()
+        self.assertEqual(conversation.state, 'closed')
+        conversation.action_reopen()
+        self.assertEqual(conversation.state, 'open')
+
+    def test_reply_from_form_uses_draft_and_clears_it(self):
+        conversation = self._reply_ready_conversation('form-reply')
+        conversation.reply_draft = 'form reply text'
+        with self._patch_send_api():
+            conversation.action_reply_from_form()
+        outbound = self.Message.search([
+            ('conversation_id', '=', conversation.id), ('direction', '=', 'outbound')])
+        self.assertEqual(len(outbound), 1)
+        self.assertEqual(outbound.message_text, 'form reply text')
+        self.assertFalse(conversation.reply_draft)
+
+    def test_create_lead_links_conversation_and_sets_utm(self):
+        conversation = self._reply_ready_conversation('lead-customer')
+        conversation.action_assign_to_me()
+        lead = conversation.action_create_lead()
+        self.assertEqual(lead.meta_conversation_id, conversation)
+        conversation.invalidate_recordset()
+        self.assertEqual(conversation.lead_id, lead)
+        self.assertEqual(lead.source_id, self.env.ref('crm_meta_lead_ads.utm_source_meta_messenger'))
+        self.assertEqual(lead.company_id, conversation.company_id)
+        self.assertEqual(lead.user_id, self.env.user)
+        self.assertIn('Meta Inbox conversation', (lead.message_ids[0].body or ''))
+
+    def test_create_lead_twice_is_blocked(self):
+        conversation = self._reply_ready_conversation('lead-twice')
+        conversation.action_create_lead()
+        with self.assertRaises(UserError):
+            conversation.action_create_lead()
+
+    def test_open_lead_action_requires_link(self):
+        conversation = self._reply_ready_conversation('lead-open')
+        with self.assertRaises(UserError):
+            conversation.action_open_lead()
+        lead = conversation.action_create_lead()
+        action = conversation.action_open_lead()
+        self.assertEqual(action['res_model'], 'crm.lead')
+        self.assertEqual(action['res_id'], lead.id)
+        self.assertEqual(action['view_mode'], 'form')

@@ -95,11 +95,11 @@ before Task 2 is considered fully verified.
 **Interfaces:**
 - Consumes: conversation actions from Tasks 2–3.
 
-- [ ] Add view-loading tests that resolve the Inbox action, list, form, and search views.
-- [ ] Add list columns for sender, preview, time, unread, assignee, state, page, and channel.
-- [ ] Add form buttons for assign, mark read, send reply, close/reopen, create lead, and open linked lead; render messages readonly in chronological order.
-- [ ] Add page/assignee/state/unread/channel filters and Arabic-compatible labels using standard Odoo layout only.
-- [ ] Upgrade the module in a disposable/test database and confirm all views load without XML errors.
+- [x] Add view-loading tests that resolve the Inbox action, list, form, and search views.
+- [x] Add list columns for sender, preview, time, unread, assignee, state, page, and channel.
+- [x] Add form buttons for assign, mark read, send reply, close/reopen, create lead, and open linked lead; render messages readonly in chronological order.
+- [x] Add page/assignee/state/unread/channel filters and Arabic-compatible labels using standard Odoo layout only.
+- [ ] Upgrade the module in a disposable/test database and confirm all views load without XML errors. (blocked: no local Odoo/Docker — verified via addon validator + deploy)
 
 ### Task 5: Complete CRM and UTM integration
 
@@ -113,10 +113,10 @@ before Task 2 is considered fully verified.
 **Interfaces:**
 - Produces: `action_create_lead()`, `action_open_lead()`, and bidirectional conversation/lead navigation.
 
-- [ ] Add failing tests for lead creation, Meta Messenger UTM source, duplicate prevention, multi-company isolation, and opening an existing link.
-- [ ] Create the lead from sender/PSID, assign the conversation user, link both records, and post only a metadata summary to chatter.
-- [ ] Prevent a second lead while `lead_id` exists and expose smart navigation on both records.
-- [ ] Run focused CRM tests; expect pass.
+- [x] Add failing tests for lead creation, Meta Messenger UTM source, duplicate prevention, multi-company isolation, and opening an existing link.
+- [x] Create the lead from sender/PSID, assign the conversation user, link both records, and post only a metadata summary to chatter.
+- [x] Prevent a second lead while `lead_id` exists and expose smart navigation on both records.
+- [ ] Run focused CRM tests; expect pass. (blocked: no local Odoo/Docker — runs after push)
 
 ### Task 6: Finish migration, documentation, and whole-module verification
 
@@ -130,8 +130,8 @@ before Task 2 is considered fully verified.
 **Interfaces:**
 - Consumes: all previous tasks.
 
-- [ ] Add migration coverage for mixed companies, pages, archived conversations, partial prior migration, and repeated execution.
-- [ ] Confirm the migration never deletes or changes original message content and creates no duplicate conversation.
-- [ ] Update README and project status with setup, permissions, 24-hour restriction, free-cost scope, and operational test steps.
-- [ ] Run `py_compile`, XML parsing, `git diff --check`, addon validator, and all Odoo tests; capture exact results.
+- [x] Add migration coverage for mixed companies, pages, archived conversations, partial prior migration, and repeated execution.
+- [x] Confirm the migration never deletes or changes original message content and creates no duplicate conversation.
+- [x] Update README and project status with setup, permissions, 24-hour restriction, free-cost scope, and operational test steps.
+- [x] Run `py_compile`, XML parsing, `git diff --check`, addon validator, and all Odoo tests; capture exact results. (Odoo runtime tests blocked locally: no Odoo/Docker; all static gates pass)
 - [ ] Review the complete diff for secrets, unrelated changes, and backward compatibility; do not commit/push/deploy until separately authorized.

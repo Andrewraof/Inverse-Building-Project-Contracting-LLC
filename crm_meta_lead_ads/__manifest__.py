@@ -18,6 +18,7 @@
         'views/meta_lead_queue_views.xml',
         'views/meta_lead_log_views.xml',
         'views/meta_message_views.xml',
+        'views/meta_conversation_views.xml',
         'views/crm_lead_views.xml',
         'views/res_config_settings_views.xml',
         'views/meta_menus.xml',
