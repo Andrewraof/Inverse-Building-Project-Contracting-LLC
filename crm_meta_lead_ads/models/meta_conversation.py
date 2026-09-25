@@ -3,6 +3,7 @@ import uuid
 from datetime import timedelta
 
 from psycopg2 import IntegrityError
+from psycopg2.errors import SerializationFailure
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
@@ -223,9 +224,16 @@ class MetaConversation(models.Model):
         the sender display name alone is never used as a match key."""
         self.ensure_one()
         # Lock the conversation row and re-read: two concurrent creators
-        # must not each produce a lead for the same conversation.
-        self.env.cr.execute(
-            'SELECT id FROM meta_conversation WHERE id = %s FOR UPDATE', (self.id,))
+        # must not each produce a lead for the same conversation. Under
+        # REPEATABLE READ a committed competitor surfaces as a
+        # serialization failure — reject it as a clean user error.
+        try:
+            self.env.cr.execute(
+                'SELECT id FROM meta_conversation WHERE id = %s FOR UPDATE', (self.id,))
+        except SerializationFailure:
+            raise UserError(_(
+                'This conversation was just linked by a concurrent process. '
+                'Reload and review before creating a lead.'))
         self.invalidate_recordset(['lead_id'])
         if self.lead_id:
             raise UserError(_('This conversation is already linked to a lead.'))
@@ -275,11 +283,19 @@ class MetaConversation(models.Model):
             raise UserError(_('Select a CRM lead to link first.'))
         # Serialize competing linkers in a fixed order (conversation then
         # lead), then re-read after the wait: a False cached before the
-        # lock must never overwrite a committed competing link.
-        self.env.cr.execute(
-            'SELECT id FROM meta_conversation WHERE id = %s FOR UPDATE', (self.id,))
-        self.env.cr.execute(
-            'SELECT id FROM crm_lead WHERE id = %s FOR UPDATE', (lead.id,))
+        # lock must never overwrite a committed competing link. Under
+        # REPEATABLE READ the lock raises a serialization failure when a
+        # competitor committed after our snapshot — that is a rejection,
+        # not a crash.
+        try:
+            self.env.cr.execute(
+                'SELECT id FROM meta_conversation WHERE id = %s FOR UPDATE', (self.id,))
+            self.env.cr.execute(
+                'SELECT id FROM crm_lead WHERE id = %s FOR UPDATE', (lead.id,))
+        except SerializationFailure:
+            raise UserError(_(
+                'This lead was just linked to another conversation by a '
+                'concurrent process. Reload and review before linking.'))
         self.invalidate_recordset(['lead_id'])
         lead.invalidate_recordset(['meta_conversation_id'])
         if self.lead_id:
