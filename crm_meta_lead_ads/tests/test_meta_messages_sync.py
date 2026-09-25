@@ -173,11 +173,11 @@ class TestMetaMessagesSync(TransactionCase):
         self.assertEqual(msg_calls[1][1], 'c1')
         self.assertEqual(run.messages_created, 2)
 
-    # 5. Without pages_messaging the steps are skipped with warnings.
+    # 5. Explicitly denied pages_messaging skips the steps with warnings.
     def test_missing_messaging_permission(self):
         def handler(path, params):
             if path == 'me/permissions':
-                return {'data': []}
+                return {'data': [{'name': 'pages_messaging', 'status': 'declined'}]}
             if path == 'me':
                 return {'id': 'user-1'}
             raise AssertionError('unexpected path %s' % path)
