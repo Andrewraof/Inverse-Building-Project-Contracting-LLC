@@ -34,7 +34,7 @@ class MetaRoutingRule(models.Model):
     team_id = fields.Many2one('crm.team')
     user_id = fields.Many2one('res.users')
     priority = fields.Selection([('0', 'Normal'), ('1', 'Low'), ('2', 'High'), ('3', 'Very High')])
-    tag_ids = fields.Many2many('crm.lead.tag')
+    tag_ids = fields.Many2many('crm.tag')
     lead_type = fields.Selection([('lead', 'Lead'), ('opportunity', 'Opportunity')])
     activity_type_id = fields.Many2one('mail.activity.type')
     activity_delay = fields.Integer(default=0, help='Days until the follow-up activity is due.')

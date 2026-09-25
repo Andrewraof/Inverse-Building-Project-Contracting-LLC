@@ -169,7 +169,7 @@ class TestMetaRouting(TransactionCase):
 
     # 9. Priority, tags and lead type are applied.
     def test_outcome_fields(self):
-        tag = self.env['crm.lead.tag'].create({'name': 'MetaHot'})
+        tag = self.env['crm.tag'].create({'name': 'MetaHot'})
         todo = self.env.ref('mail.mail_activity_data_todo')
         self.Rule.create({
             'name': 'Full', 'page_id': self.page.id, 'priority': '3',
