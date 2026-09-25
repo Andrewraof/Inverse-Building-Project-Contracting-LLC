@@ -67,7 +67,7 @@
                             <group>
                                 <group>
                                     <field name="partner_id"/>
-                                    <field name="lead_id" domain="[('company_id','in',[company_id, False])]"/>
+                                    <field name="lead_id" readonly="1"/>
                                     <field name="meta_thread_id" readonly="1"/>
                                 </group>
                                 <group>

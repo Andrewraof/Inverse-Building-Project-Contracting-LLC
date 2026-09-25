@@ -61,8 +61,23 @@ class TestMetaReports(TransactionCase):
     def test_conversation_pivot_measures_lead_conversion(self):
         view = self.env.ref('crm_meta_lead_ads.view_meta_conversation_pivot')
         arch = view.arch_db
-        self.assertIn('lead_id', arch)
+        self.assertIn('name="linked_lead_count" type="measure"', arch)
         self.assertIn('first_response_seconds', arch)
+
+    def test_conversation_linked_lead_count_aggregates(self):
+        Conv = self.env['meta.conversation']
+        linked = Conv.create({
+            'company_id': self.env.company.id, 'page_id': self.page.id,
+            'psid': 'report-linked',
+        })
+        Conv.create({
+            'company_id': self.env.company.id, 'page_id': self.page.id,
+            'psid': 'report-unlinked',
+        })
+        linked.action_create_lead()
+        groups = Conv.read_group(
+            [('page_id', '=', self.page.id)], ['linked_lead_count:sum'], [])
+        self.assertEqual(groups[0]['linked_lead_count'], 1)
 
     # 3c. The leads pivot breaks down by sales team and salesperson.
     def test_leads_pivot_has_team_and_user_rows(self):
