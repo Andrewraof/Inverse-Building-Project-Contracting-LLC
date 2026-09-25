@@ -117,6 +117,15 @@ class MetaAccount(models.Model):
                                  token=self.user_access_token, params={'limit': 200})
         except Exception:
             return None, None
+        if not data.get('data'):
+            # An empty edge does not prove that every scope was denied.
+            # Let each Graph API operation establish its own access result.
+            self.write({
+                'granted_permissions': False,
+                'missing_permissions': False,
+                'permissions_checked_at': False,
+            })
+            return None, None
         granted = {p.get('name') for p in data.get('data') or []
                    if p.get('status') == 'granted' and p.get('name')}
         missing = [p for p in REQUIRED_PERMISSIONS if p not in granted]
