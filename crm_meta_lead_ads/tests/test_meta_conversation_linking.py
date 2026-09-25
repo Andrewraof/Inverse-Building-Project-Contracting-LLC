@@ -165,8 +165,9 @@ class TestMetaConversationLinking(TransactionCase):
         })
         conv = self._conversation('restricted-link')
         lead = self._lead('Other Salesperson Lead', user_id=self.env.user.id)
-        with self.assertRaises((AccessError, UserError)):
+        with self.assertRaises(Exception) as raised:
             self._wizard(conv, lead).with_user(user).action_link()
+        self.assertIsInstance(raised.exception, (AccessError, UserError))
         self.assertFalse(conv.lead_id)
         self.assertFalse(lead.meta_conversation_id)
 
@@ -184,8 +185,9 @@ class TestMetaConversationLinking(TransactionCase):
         })
         conv = self._conversation('company-restricted-link')
         lead = self._lead('Unavailable Company Lead', company_id=other_company.id)
-        with self.assertRaises((AccessError, UserError)):
+        with self.assertRaises(Exception) as raised:
             self._wizard(conv, lead).with_user(user).action_link()
+        self.assertIsInstance(raised.exception, (AccessError, UserError))
         self.assertFalse(conv.lead_id)
         self.assertFalse(lead.meta_conversation_id)
 
