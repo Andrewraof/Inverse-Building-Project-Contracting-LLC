@@ -152,3 +152,19 @@ class TestMetaQueueActions(TransactionCase):
         self.assertNotIn('current transaction is aborted', rec.error_message)
         self.assertTrue(self.Log.search([
             ('queue_id', '=', rec.id), ('action', '=', 'retry_scheduled')]))
+
+    def test_expired_token_still_marks_account_and_queue_failed(self):
+        rec = self._queue(state='pending', match_result=False,
+                          meta_lead_id='QA-TOKEN-ERROR')
+
+        def fail_fetch():
+            self.account.write({'state': 'error', 'error_message': 'Token expired'})
+            raise UserError('Token expired')
+
+        with patch.object(type(rec), '_fetch_lead', side_effect=fail_fetch):
+            rec.process_one()
+
+        rec.invalidate_recordset()
+        self.account.invalidate_recordset()
+        self.assertEqual(self.account.state, 'error')
+        self.assertEqual(rec.state, 'failed')

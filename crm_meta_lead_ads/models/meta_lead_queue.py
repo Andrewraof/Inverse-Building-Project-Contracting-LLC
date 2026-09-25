@@ -353,22 +353,27 @@ class MetaLeadQueue(models.Model):
         self.ensure_one()
         if self.state not in ('pending', 'retry', 'failed', 'ambiguous'):
             return
-        self.state = 'processing'
         try:
-            payload = self._fetch_lead()
-            self.fetched_payload = payload
-            lead, outcome, detail = self._resolve_crm_lead(payload)
-            self.write({
-                'state': self.OUTCOME_STATE[outcome], 'match_result': outcome,
-                'crm_lead_id': lead.id if lead else False,
-                'processed_at': fields.Datetime.now(), 'error_message': detail or False,
-            })
-            level = 'warning' if outcome == 'ambiguous' else 'info'
-            self._log(level, outcome, detail or 'CRM lead %s' % lead.id,
-                      self._safe_audit_payload(payload))
-            if outcome == 'ambiguous':
-                self._schedule_attention_activity(
-                    _('Meta lead event needs manual resolution (queue %s)') % self.id)
+            # A database error aborts PostgreSQL's transaction. Roll back
+            # this event before the retry handler reads/writes ORM records;
+            # otherwise it masks the original error with InFailedSqlTransaction
+            # and fails the entire sync run.
+            with self.env.cr.savepoint():
+                self.state = 'processing'
+                payload = self._fetch_lead()
+                self.fetched_payload = payload
+                lead, outcome, detail = self._resolve_crm_lead(payload)
+                self.write({
+                    'state': self.OUTCOME_STATE[outcome], 'match_result': outcome,
+                    'crm_lead_id': lead.id if lead else False,
+                    'processed_at': fields.Datetime.now(), 'error_message': detail or False,
+                })
+                level = 'warning' if outcome == 'ambiguous' else 'info'
+                self._log(level, outcome, detail or 'CRM lead %s' % lead.id,
+                          self._safe_audit_payload(payload))
+                if outcome == 'ambiguous':
+                    self._schedule_attention_activity(
+                        _('Meta lead event needs manual resolution (queue %s)') % self.id)
         except Exception as exc:
             account = self.page_id.account_id
             message = account._sanitize_error(exc, [
