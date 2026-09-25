@@ -162,7 +162,7 @@
   (4) عزل كامل بين الشركات لبحث `meta_lead_id` وصفوف identity مع
   رفع أي تعارض بدل ابتلاعه.
 
-## Batch 2 — Complete Meta CRM Operations Suite (2026-09-25, v19.0.4.0.0)
+## Batch 2 — Complete Meta CRM Operations Suite (2026-09-25, v19.0.4.1.0 on review branch)
 
 - موديلا `meta.sync.run` و`meta.sync.run.line`: زر Sync All Meta Data
   يشغّل مهمة خلفية قابلة للاستئناف (work_state + cursors) عبر cron tick
@@ -186,10 +186,14 @@
 - كشف الحقول غير المربوطة على `meta.form` (`unmapped_field_names`).
 - تقارير Community: pivot/graph للـQueue وليدز Meta والمحادثات
   والـFunnel، وsmart buttons على crm.lead (identity + المحادثة).
+- ربط محادثة Inbox بليد قائم عبر Wizard مع حراسة الصلاحيات والشركة
+  والتزامن والربط المتبادل. مقياس رقمي للمحادثات المرتبطة بليد،
+  و`first_response_at` لتمييز الرد الفوري من عدم الرد. ترحيل مستقل
+  `19.0.4.1.0` يعيد تعبئة المؤشر والرد الأول للقواعد القديمة.
 - اختبارات جديدة في ملفات sync_run, routing, messages_sync,
   queue_actions, reports. اختبارات Odoo 19 الفعلية اجتازت على قاعدة
-  مؤقتة في GitHub Actions (تشغيل `36103294312`: 175 اختبارًا مع اختبار
-  تدفق تزامن كامل مؤجل؛ اختبار قفل PostgreSQL بمعاملتين نجح).
+  مؤقتة في GitHub Actions (تشغيل `36174793640`: **202 اختبارًا بلا
+  فشل أو خطأ**، بما فيها اختبار ربط متزامن بمعاملتين).
   لم تُشغَّل اختبارات على قاعدة الإنتاج.
 
 ## بيئة الإنتاج
