@@ -135,9 +135,6 @@ class TestMetaConversationLinking(TransactionCase):
 class TestMetaConversationConcurrentLink(TransactionCase):
     def test_committed_competing_link_is_not_overwritten(self):
         """A link waiting on a lead row must re-read the winner after the wait."""
-        class RollbackProbe(Exception):
-            pass
-
         registry = Registry(self.env.cr.dbname)
         suffix = uuid.uuid4().hex
         with registry.cursor() as cr:
@@ -164,9 +161,6 @@ class TestMetaConversationConcurrentLink(TransactionCase):
             cr.commit()
 
         account_id, page_id, conv_a_id, conv_b_id, lead_id = ids
-        conv_a = self.env['meta.conversation'].browse(conv_a_id)
-        lead = self.env['crm.lead'].browse(lead_id)
-        self.assertFalse(lead.meta_conversation_id)  # prime the ORM cache
         locked = threading.Event()
         release = threading.Event()
         worker_errors = []
@@ -191,30 +185,36 @@ class TestMetaConversationConcurrentLink(TransactionCase):
         worker = threading.Thread(target=competing_transaction)
         timer = None
         try:
-            worker.start()
-            self.assertTrue(locked.wait(timeout=30))
-            self.assertFalse(worker_errors)
-            timer = threading.Timer(1, release.set)
-            timer.start()
-            rejected = False
-            try:
-                with self.env.cr.savepoint():
-                    try:
-                        conv_a._link_to_lead(lead)
-                    except UserError:
-                        rejected = True
-                    # Release any locks/writes even on the expected-red run.
-                    raise RollbackProbe()
-            except RollbackProbe:
-                pass
+            # Use a fresh transaction: the TransactionCase cursor started
+            # before the independently committed fixture and cannot see it.
+            with registry.cursor() as main_cr:
+                env = api.Environment(main_cr, SUPERUSER_ID, {})
+                conv_a = env['meta.conversation'].browse(conv_a_id)
+                lead = env['crm.lead'].browse(lead_id)
+                self.assertFalse(lead.meta_conversation_id)  # prime cache
+                worker.start()
+                self.assertTrue(locked.wait(timeout=30))
+                self.assertFalse(worker_errors)
+                timer = threading.Timer(1, release.set)
+                timer.start()
+                rejected = False
+                try:
+                    conv_a._link_to_lead(lead)
+                except UserError:
+                    rejected = True
+                finally:
+                    # Never commit the contender's attempted link.
+                    main_cr.rollback()
             worker.join(timeout=30)
             self.assertFalse(worker.is_alive())
             self.assertFalse(worker_errors)
             self.assertTrue(rejected, 'A competing committed link was overwritten')
-            lead.invalidate_recordset(['meta_conversation_id'])
-            self.assertEqual(lead.meta_conversation_id.id, conv_b_id)
-            conv_a.invalidate_recordset(['lead_id'])
-            self.assertFalse(conv_a.lead_id)
+            with registry.cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                lead = env['crm.lead'].browse(lead_id)
+                conv_a = env['meta.conversation'].browse(conv_a_id)
+                self.assertEqual(lead.meta_conversation_id.id, conv_b_id)
+                self.assertFalse(conv_a.lead_id)
         finally:
             release.set()
             if timer:
