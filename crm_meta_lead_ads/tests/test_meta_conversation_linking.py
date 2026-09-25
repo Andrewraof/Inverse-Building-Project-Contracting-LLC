@@ -4,7 +4,7 @@ import uuid
 from psycopg2.errors import SerializationFailure
 
 from odoo import SUPERUSER_ID, api
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 from odoo.tests.common import TransactionCase
 from odoo.modules.registry import Registry
 
@@ -46,6 +46,27 @@ class TestMetaConversationLinking(TransactionCase):
         conv = self._conversation()
         lead = self._lead()
         self._wizard(conv, lead).action_link()
+        self.assertEqual(conv.lead_id, lead)
+        self.assertEqual(lead.meta_conversation_id, conv)
+
+    def test_lead_field_is_readonly_in_conversation_form(self):
+        view = self.env.ref('crm_meta_lead_ads.view_meta_conversation_form')
+        self.assertIn('name="lead_id"', view.arch_db)
+        self.assertIn('name="lead_id" readonly="1"', view.arch_db)
+
+    def test_direct_lead_write_keeps_both_links_consistent(self):
+        conv = self._conversation()
+        lead = self._lead()
+        conv.write({'lead_id': lead.id})
+        self.assertEqual(conv.lead_id, lead)
+        self.assertEqual(lead.meta_conversation_id, conv)
+        with self.assertRaises(UserError):
+            conv.write({'lead_id': False})
+        self.assertEqual(conv.lead_id, lead)
+
+    def test_direct_create_with_lead_keeps_both_links_consistent(self):
+        lead = self._lead()
+        conv = self._conversation('direct-create', lead_id=lead.id)
         self.assertEqual(conv.lead_id, lead)
         self.assertEqual(lead.meta_conversation_id, conv)
 
@@ -132,6 +153,41 @@ class TestMetaConversationLinking(TransactionCase):
         wizard = self._wizard(conv, lead).with_user(user)
         wizard.action_link()
         self.assertEqual(conv.lead_id, lead)
+
+    def test_link_wizard_rejects_other_salespersons_lead(self):
+        sales_group = self.env.ref('sales_team.group_sale_salesman')
+        meta_group = self.env.ref('crm_meta_lead_ads.group_meta_lead_user')
+        user = self.env['res.users'].create({
+            'name': 'Restricted Link User', 'login': 'restricted-link@test',
+            'company_id': self.env.company.id,
+            'company_ids': [(4, self.env.company.id)],
+            'group_ids': [(4, meta_group.id), (4, sales_group.id)],
+        })
+        conv = self._conversation('restricted-link')
+        lead = self._lead('Other Salesperson Lead', user_id=self.env.user.id)
+        with self.assertRaises((AccessError, UserError)):
+            self._wizard(conv, lead).with_user(user).action_link()
+        self.assertFalse(conv.lead_id)
+        self.assertFalse(lead.meta_conversation_id)
+
+    def test_link_wizard_rejects_unavailable_company_as_user(self):
+        other_company = self.env['res.company'].create({'name': 'Unavailable Link Co'})
+        user = self.env['res.users'].create({
+            'name': 'Company Restricted Link User',
+            'login': 'company-restricted-link@test',
+            'company_id': self.env.company.id,
+            'company_ids': [(4, self.env.company.id)],
+            'group_ids': [
+                (4, self.env.ref('crm_meta_lead_ads.group_meta_lead_user').id),
+                (4, self.env.ref('sales_team.group_sale_salesman').id),
+            ],
+        })
+        conv = self._conversation('company-restricted-link')
+        lead = self._lead('Unavailable Company Lead', company_id=other_company.id)
+        with self.assertRaises((AccessError, UserError)):
+            self._wizard(conv, lead).with_user(user).action_link()
+        self.assertFalse(conv.lead_id)
+        self.assertFalse(lead.meta_conversation_id)
 
 
 class TestMetaConversationConcurrentLink(TransactionCase):

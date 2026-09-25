@@ -29,10 +29,10 @@ def migrate(cr, version):
         last_id = batch[-1].id
         for conv in batch:
             visited += 1
-            before = (conv.last_inbound_at, conv.first_response_seconds, conv.first_response_at,
+            before = (conv.last_inbound_at, conv.first_response_seconds,
                       conv.last_message_at, conv.last_message_preview)
             conv._refresh_history_metrics()
-            after = (conv.last_inbound_at, conv.first_response_seconds, conv.first_response_at,
+            after = (conv.last_inbound_at, conv.first_response_seconds,
                      conv.last_message_at, conv.last_message_preview)
             if before != after:
                 updated += 1

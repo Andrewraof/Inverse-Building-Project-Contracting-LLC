@@ -23,6 +23,10 @@ class MetaConversation(models.Model):
     sender_name = fields.Char(tracking=True)
     partner_id = fields.Many2one('res.partner', index=True)
     lead_id = fields.Many2one('crm.lead', copy=False, index=True)
+    linked_lead_count = fields.Integer(
+        string='Linked Leads', compute='_compute_linked_lead_count',
+        store=True, readonly=True, aggregator='sum',
+        help='One when this conversation is linked to a CRM lead; used in reports.')
     assigned_user_id = fields.Many2one('res.users', tracking=True)
     state = fields.Selection([
         ('new', 'New'), ('open', 'Open'), ('pending', 'Pending'), ('closed', 'Closed'),
@@ -51,6 +55,34 @@ class MetaConversation(models.Model):
     def _compute_display_name(self):
         for rec in self:
             rec.display_name = rec.sender_name or rec.psid or _('Meta Conversation')
+
+    @api.depends('lead_id')
+    def _compute_linked_lead_count(self):
+        for rec in self:
+            rec.linked_lead_count = 1 if rec.lead_id else 0
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        # Do not let direct ORM creates bypass the bidirectional link checks.
+        lead_ids = [vals.pop('lead_id', False) for vals in vals_list]
+        records = super().create(vals_list)
+        for rec, lead_id in zip(records, lead_ids):
+            if lead_id:
+                rec._link_to_lead(self.env['crm.lead'].browse(lead_id))
+        return records
+
+    def write(self, vals):
+        if 'lead_id' not in vals:
+            return super().write(vals)
+        if len(self) != 1:
+            raise UserError(_('Link one Meta conversation at a time.'))
+        other_vals = {key: value for key, value in vals.items() if key != 'lead_id'}
+        lead_id = vals['lead_id'] or False
+        if lead_id:
+            self._link_to_lead(self.env['crm.lead'].browse(lead_id))
+        elif self.lead_id:
+            raise UserError(_('Use the linked CRM lead; clearing this link is not supported.'))
+        return super().write(other_vals) if other_vals else True
 
     @api.model
     def _get_or_create(self, page, psid, values=None):
@@ -238,7 +270,7 @@ class MetaConversation(models.Model):
             'source_id': source.id if source else False,
             'meta_conversation_id': self.id,
         })
-        self.lead_id = lead.id
+        super(MetaConversation, self).write({'lead_id': lead.id})
         lead.message_post(body=_(
             'Created from Meta Inbox conversation (page: %(page)s, PSID: %(psid)s).',
             page=self.page_id.name, psid=self.psid))
@@ -286,7 +318,7 @@ class MetaConversation(models.Model):
             raise UserError(_('The selected lead belongs to another company.'))
         if lead.meta_conversation_id and lead.meta_conversation_id != self:
             raise UserError(_('The selected lead is already linked to another Meta conversation.'))
-        self.lead_id = lead.id
+        super(MetaConversation, self).write({'lead_id': lead.id})
         if lead.meta_conversation_id != self:
             lead.meta_conversation_id = self.id
         lead.message_post(body=_(
