@@ -28,7 +28,11 @@ class CrmLead(models.Model):
     # Meta dedup matcher can do exact, indexable comparisons.
     meta_norm_email = fields.Char(index=True, copy=False, readonly=True)
     meta_norm_phone = fields.Char(index=True, copy=False, readonly=True)
-    meta_identity_ids = fields.One2many('meta.lead.identity', 'crm_lead_id', readonly=True)
+    # Identity links are Meta-group data; ordinary CRM users must still be
+    # able to open and edit leads, so the relation is group-restricted and
+    # the count below reads it through a narrowly scoped sudo().
+    meta_identity_ids = fields.One2many('meta.lead.identity', 'crm_lead_id', readonly=True,
+                                        groups='crm_meta_lead_ads.group_meta_lead_user')
     meta_identity_count = fields.Integer(compute='_compute_meta_identity_count')
     meta_routing_rule_id = fields.Many2one('meta.routing.rule', copy=False, readonly=True,
                                            help='Routing rule that assigned this lead, if any.')
@@ -36,7 +40,7 @@ class CrmLead(models.Model):
     @api.depends('meta_identity_ids')
     def _compute_meta_identity_count(self):
         for rec in self:
-            rec.meta_identity_count = len(rec.meta_identity_ids)
+            rec.meta_identity_count = len(rec.sudo().meta_identity_ids)
 
     def action_open_meta_identities(self):
         self.ensure_one()
