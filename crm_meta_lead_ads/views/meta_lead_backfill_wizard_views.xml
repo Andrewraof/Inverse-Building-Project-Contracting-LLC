@@ -1,0 +1,40 @@
+<odoo>
+    <record id="view_meta_lead_backfill_wizard_form" model="ir.ui.view">
+        <field name="name">meta.lead.backfill.wizard.form</field>
+        <field name="model">meta.lead.backfill.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Meta Leads Historical Backfill">
+                <group>
+                    <field name="account_id" domain="[('state','=','connected')]"/>
+                    <field name="page_ids" widget="many2many_tags"/>
+                </group>
+                <group string="Date Range (optional)">
+                    <group>
+                        <field name="date_from"/>
+                    </group>
+                    <group>
+                        <field name="date_to"/>
+                    </group>
+                </group>
+                <group string="Safety Limits">
+                    <group>
+                        <field name="max_pages"/>
+                    </group>
+                    <group>
+                        <field name="max_records"/>
+                    </group>
+                </group>
+                <footer>
+                    <button name="action_create_run" type="object" string="Create &amp; Start Sync Run" class="btn-primary"/>
+                    <button string="Cancel" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+    <record id="action_meta_lead_backfill_wizard" model="ir.actions.act_window">
+        <field name="name">Leads Historical Backfill</field>
+        <field name="res_model">meta.lead.backfill.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+</odoo>

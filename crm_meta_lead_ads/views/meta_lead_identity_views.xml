@@ -1,0 +1,54 @@
+<odoo>
+    <record id="view_meta_lead_identity_list" model="ir.ui.view">
+        <field name="name">meta.lead.identity.list</field>
+        <field name="model">meta.lead.identity</field>
+        <field name="arch" type="xml">
+            <list create="0" edit="0" delete="0">
+                <field name="meta_lead_id"/>
+                <field name="crm_lead_id"/>
+                <field name="queue_id" optional="hide"/>
+                <field name="match_type" widget="badge"/>
+                <field name="create_date"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_meta_lead_identity_form" model="ir.ui.view">
+        <field name="name">meta.lead.identity.form</field>
+        <field name="model">meta.lead.identity</field>
+        <field name="arch" type="xml">
+            <form create="0" edit="0" delete="0">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="meta_lead_id"/>
+                            <field name="crm_lead_id"/>
+                        </group>
+                        <group>
+                            <field name="queue_id"/>
+                            <field name="match_type"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="view_meta_lead_identity_search" model="ir.ui.view">
+        <field name="name">meta.lead.identity.search</field>
+        <field name="model">meta.lead.identity</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="meta_lead_id"/>
+                <field name="crm_lead_id"/>
+                <filter string="Match Type" name="group_match_type" context="{'group_by':'match_type'}"/>
+            </search>
+        </field>
+    </record>
+    <record id="action_meta_lead_identity" model="ir.actions.act_window">
+        <field name="name">Meta Lead Identities</field>
+        <field name="res_model">meta.lead.identity</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_meta_lead_identity_search"/>
+    </record>
+</odoo>

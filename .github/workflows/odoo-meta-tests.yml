@@ -1,0 +1,45 @@
+name: Odoo 19 Meta connector tests
+
+on:
+  push:
+    branches: ["batch2-*"]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  odoo-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U odoo"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install and test connector on a temporary Odoo 19 database
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
+            -e HOST=127.0.0.1 -e USER=odoo \
+            odoo:19.0 \
+            --database=meta_connector_test \
+            --init=crm_meta_lead_ads \
+            --test-tags=/crm_meta_lead_ads \
+            --stop-after-init \
+            --without-demo=all \
+            --db_host=127.0.0.1 \
+            --db_user=odoo \
+            --log-level=test

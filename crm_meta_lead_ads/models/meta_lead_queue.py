@@ -28,6 +28,7 @@ AUDIT_PAYLOAD_KEYS = (
 class MetaLeadQueue(models.Model):
     _name = 'meta.lead.queue'
     _description = 'Meta Lead Ingestion Queue'
+    _inherit = ['mail.thread', 'mail.activity.mixin']
     _order = 'priority desc, id'
 
     company_id = fields.Many2one('res.company', required=True, index=True)
@@ -45,6 +46,20 @@ class MetaLeadQueue(models.Model):
     crm_lead_id = fields.Many2one('crm.lead', readonly=True, index=True)
     received_at = fields.Datetime(default=fields.Datetime.now, required=True, index=True)
     processed_at = fields.Datetime(readonly=True)
+    sync_run_id = fields.Many2one('meta.sync.run', readonly=True, index=True, copy=False,
+                                  help='Sync run that enqueued this record, if any.')
+    manual_lead_id = fields.Many2one('crm.lead', copy=False,
+                                     help='Chosen by a manager to resolve an ambiguous event.')
+    processing_seconds = fields.Float(compute='_compute_processing_seconds', store=True,
+                                      readonly=True)
+
+    @api.depends('received_at', 'processed_at')
+    def _compute_processing_seconds(self):
+        for rec in self:
+            if rec.received_at and rec.processed_at:
+                rec.processing_seconds = (rec.processed_at - rec.received_at).total_seconds()
+            else:
+                rec.processing_seconds = 0.0
 
     _unique_queued_lead = models.Constraint('UNIQUE(meta_lead_id, company_id)', 'This Meta lead is already queued for this company.')
 
@@ -311,6 +326,9 @@ class MetaLeadQueue(models.Model):
             # entirely — never swallow it.
             raise
         self._ensure_identity(lead, 'created')
+        answers = {x.get('name'): ', '.join(str(v) for v in x.get('values') or [])
+                   for x in payload.get('field_data') or [] if x.get('name')}
+        self.env['meta.routing.rule'].sudo().apply_for_lead(lead, queue=self, answers=answers)
         return lead, 'created', ''
 
     def _schedule_retry(self, message, fatal=False):
@@ -320,6 +338,7 @@ class MetaLeadQueue(models.Model):
         if fatal or attempts >= max_attempts:
             self.write({'state': 'failed', 'match_result': 'failed', 'attempts': attempts, 'error_message': message, 'processed_at': fields.Datetime.now()})
             self._log('error', 'failed', message)
+            self._schedule_attention_activity(_('Meta lead event failed permanently (queue %s)') % self.id)
             return
         delay = min(2 ** attempts, 60) + random.randint(0, 3)
         self.write({'state': 'retry', 'attempts': attempts, 'error_message': message, 'next_retry_at': fields.Datetime.now() + timedelta(minutes=delay)})
@@ -347,6 +366,9 @@ class MetaLeadQueue(models.Model):
             level = 'warning' if outcome == 'ambiguous' else 'info'
             self._log(level, outcome, detail or 'CRM lead %s' % lead.id,
                       self._safe_audit_payload(payload))
+            if outcome == 'ambiguous':
+                self._schedule_attention_activity(
+                    _('Meta lead event needs manual resolution (queue %s)') % self.id)
         except Exception as exc:
             account = self.page_id.account_id
             message = account._sanitize_error(exc, [
@@ -368,7 +390,7 @@ class MetaLeadQueue(models.Model):
             rec.process_one()
         return True
 
-    def _enqueue_poll_leads(self, company, page, form, lead_ids):
+    def _enqueue_poll_leads(self, company, page, form, lead_ids, sync_run=None):
         """Bulk-enqueue polled leads: one pre-check search per form, then
         inserts only for IDs missing from the queue. The unique constraint
         and the savepoint/IntegrityError fallback remain as race protection
@@ -387,12 +409,15 @@ class MetaLeadQueue(models.Model):
             if lead_id in existing:
                 pre_existing += 1
                 continue
+            vals = {
+                'company_id': company.id, 'page_id': page.id, 'form_id': form.id,
+                'meta_lead_id': lead_id, 'raw_webhook': {'recovery_poll': True},
+            }
+            if sync_run:
+                vals['sync_run_id'] = sync_run.id
             try:
                 with self.env.cr.savepoint():
-                    self.sudo().create({
-                        'company_id': company.id, 'page_id': page.id, 'form_id': form.id,
-                        'meta_lead_id': lead_id, 'raw_webhook': {'recovery_poll': True},
-                    })
+                    self.sudo().create(vals)
                 created += 1
             except IntegrityError:
                 # A conflict is a race duplicate only if a competing row
@@ -478,3 +503,93 @@ class MetaLeadQueue(models.Model):
                 ])
                 self.env['meta.lead.log'].sudo().create({'company_id': form.company_id.id, 'level': 'error', 'action': 'poll_failed', 'message': message})
         return True
+
+    # ------------------------------------------------------------------
+    # Manual operations from the UI
+    # ------------------------------------------------------------------
+    def action_retry_selected(self):
+        """Requeue failed/ambiguous/retry records for processing. Safe
+        against duplicates: process_one always resolves through the dedup
+        matcher and the unique constraints, never a blind create."""
+        retryable = self.filtered(lambda r: r.state in ('failed', 'ambiguous', 'retry'))
+        for rec in retryable:
+            rec.write({'state': 'pending', 'next_retry_at': False, 'error_message': False})
+            rec._log('info', 'manual_retry', 'Requeued manually by user %s.' % self.env.user.id)
+        return True
+
+    @api.model
+    def action_retry_all_failed(self):
+        records = self.search([('state', '=', 'failed')])
+        records.action_retry_selected()
+        return {
+            'type': 'ir.actions.client', 'tag': 'display_notification',
+            'params': {
+                'title': _('Meta Ingestion Queue'),
+                'message': _('%s failed record(s) requeued.') % len(records),
+                'type': 'success', 'sticky': False, 'next': {'type': 'ir.actions.client', 'tag': 'reload'},
+            },
+        }
+
+    def action_reset_pending(self):
+        """Manager-only reset of any non-processing record to pending."""
+        if not self.env.user.has_group('crm_meta_lead_ads.group_meta_lead_manager'):
+            raise UserError(_('Only Meta Lead Ads managers can reset queue records.'))
+        for rec in self.filtered(lambda r: r.state != 'processing'):
+            rec.write({'state': 'pending', 'next_retry_at': False, 'error_message': False})
+            rec._log('warning', 'manual_reset', 'Reset to pending by user %s.' % self.env.user.id)
+        return True
+
+    def action_link_manual_lead(self):
+        """Resolve an ambiguous event by linking the manager-chosen CRM
+        lead. Never overwrites the lead's data and never creates a new
+        lead; the identity row keeps this Meta lead ID auditable."""
+        for rec in self:
+            if rec.state != 'ambiguous':
+                raise UserError(_('Only ambiguous records can be resolved manually.'))
+            if not rec.manual_lead_id:
+                raise UserError(_('Choose a CRM lead in "Manual Lead" first.'))
+            lead = rec.manual_lead_id
+            if lead.company_id and lead.company_id != rec.company_id:
+                raise UserError(_('The chosen lead belongs to another company.'))
+            rec._ensure_identity(lead, 'manual')
+            rec.write({
+                'state': 'done', 'crm_lead_id': lead.id,
+                'processed_at': fields.Datetime.now(), 'error_message': False,
+            })
+            rec._log('info', 'manual_resolution',
+                     'Ambiguous event linked to CRM lead %s by user %s.'
+                     % (lead.id, self.env.user.id),
+                     {'id': rec.meta_lead_id})
+            lead.message_post(
+                body=_('Meta Lead Ads queue event %s was linked to this lead manually.') % rec.meta_lead_id,
+                message_type='comment', subtype_xmlid='mail.mt_note')
+        return True
+
+    def _schedule_attention_activity(self, summary):
+        """One open activity per queue record for the fallback inbox user
+        when an event needs human attention (terminal failure or
+        ambiguous). Honors the crm_meta_lead_ads.queue_notify switch."""
+        self.ensure_one()
+        if self.env['ir.config_parameter'].sudo().get_param(
+                'crm_meta_lead_ads.queue_notify', 'True') in ('False', '0', 'false'):
+            return
+        configured = self.env['ir.config_parameter'].sudo().get_param(
+            'crm_meta_lead_ads.inbox_default_user_id')
+        try:
+            user = self.env['res.users'].sudo().browse(int(configured)).exists()
+        except (TypeError, ValueError):
+            user = self.env['res.users'].browse()
+        if not user:
+            return
+        todo = self.env.ref('mail.mail_activity_data_todo')
+        model_id = self.env['ir.model']._get_id(self._name)
+        existing = self.env['mail.activity'].sudo().search([
+            ('res_model_id', '=', model_id), ('res_id', '=', self.id),
+            ('activity_type_id', '=', todo.id),
+        ], limit=1)
+        if not existing:
+            self.env['mail.activity'].sudo().create({
+                'activity_type_id': todo.id, 'res_model_id': model_id,
+                'res_id': self.id, 'user_id': user.id, 'summary': summary,
+                'date_deadline': fields.Date.today(),
+            })

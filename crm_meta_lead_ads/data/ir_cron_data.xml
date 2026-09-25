@@ -11,4 +11,10 @@
         <field name="state">code</field><field name="code">model._cron_poll_meta_leads()</field>
         <field name="interval_number">5</field><field name="interval_type">minutes</field><field name="active">True</field>
     </record>
+    <record id="ir_cron_meta_sync_runs" model="ir.cron">
+        <field name="name">Meta Lead Ads: Process Sync Runs</field>
+        <field name="model_id" ref="model_meta_sync_run"/>
+        <field name="state">code</field><field name="code">model._cron_process_runs()</field>
+        <field name="interval_number">1</field><field name="interval_type">minutes</field><field name="active">True</field>
+    </record>
 </odoo>

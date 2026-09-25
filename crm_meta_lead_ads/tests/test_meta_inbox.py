@@ -2,7 +2,7 @@ import hashlib
 import hmac
 import json
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from psycopg2 import IntegrityError
 
@@ -401,8 +401,8 @@ class TestMetaInbox(TransactionCase):
         search_view = self.env.ref('crm_meta_lead_ads.view_meta_conversation_search')
         self.assertEqual(action.search_view_id, search_view)
         for view_type in ('list', 'form', 'search'):
-            arch, _view = self.Conversation.get_view(view_type=view_type)
-            self.assertIn('meta.conversation', arch)
+            arch = self.Conversation.get_view(view_type=view_type)['arch']
+            self.assertIn('<%s' % view_type, arch)
 
     def test_form_actions_assign_mark_read_close_reopen(self):
         conversation = self._reply_ready_conversation('form-actions')
@@ -549,7 +549,7 @@ class TestMetaInbox(TransactionCase):
     def _dispatch_messaging_event(self, event, entry_page_id='100'):
         from odoo.addons.crm_meta_lead_ads.controllers.main import MetaLeadController
         controller = MetaLeadController()
-        with patch('odoo.addons.crm_meta_lead_ads.controllers.main.request') as fake_request:
+        with patch('odoo.addons.crm_meta_lead_ads.controllers.main.request', new=MagicMock()) as fake_request:
             fake_request.env = self.env
             controller._handle_messaging_event(
                 self.env['meta.page'].sudo(), self.env['meta.conversation'].sudo(),
@@ -579,7 +579,7 @@ class TestMetaInbox(TransactionCase):
         controller = MetaLeadController()
         raw = json.dumps(payload).encode()
         signature = 'sha256=' + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
-        with patch('odoo.addons.crm_meta_lead_ads.controllers.main.request') as fake_request:
+        with patch('odoo.addons.crm_meta_lead_ads.controllers.main.request', new=MagicMock()) as fake_request:
             fake_request.env = self.env
             fake_request.httprequest.get_data.return_value = raw
             fake_request.httprequest.headers.get.return_value = signature

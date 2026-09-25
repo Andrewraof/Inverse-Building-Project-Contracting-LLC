@@ -3,8 +3,17 @@
     <menuitem id="menu_meta_accounts" name="Accounts" parent="menu_meta_root" action="action_meta_account" sequence="5" groups="crm_meta_lead_ads.group_meta_lead_manager"/>
     <menuitem id="menu_meta_pages" name="Pages" parent="menu_meta_root" action="action_meta_page" sequence="10"/>
     <menuitem id="menu_meta_forms" name="Forms &amp; Mapping" parent="menu_meta_root" action="action_meta_form" sequence="20"/>
+    <menuitem id="menu_meta_sync_runs" name="Sync Runs" parent="menu_meta_root" action="action_meta_sync_run" sequence="22"/>
     <menuitem id="menu_meta_inbox" name="Inbox" parent="menu_meta_root" action="action_meta_conversation" sequence="23"/>
     <menuitem id="menu_meta_messages" name="Messages" parent="menu_meta_root" action="action_meta_message" sequence="25"/>
     <menuitem id="menu_meta_queue" name="Ingestion Queue" parent="menu_meta_root" action="action_meta_lead_queue" sequence="30"/>
+    <menuitem id="menu_meta_routing" name="Routing Rules" parent="menu_meta_root" action="action_meta_routing_rule" sequence="35" groups="crm_meta_lead_ads.group_meta_lead_manager"/>
+    <menuitem id="menu_meta_reports" name="Reports" parent="menu_meta_root" sequence="38"/>
+    <menuitem id="menu_meta_report_leads" name="Leads" parent="menu_meta_reports" action="action_meta_leads_report" sequence="10"/>
+    <menuitem id="menu_meta_report_queue" name="Ingestion Queue" parent="menu_meta_reports" action="action_meta_queue_report" sequence="20"/>
+    <menuitem id="menu_meta_report_conversations" name="Conversations" parent="menu_meta_reports" action="action_meta_conversation_report" sequence="30"/>
+    <menuitem id="menu_meta_report_funnel" name="Funnel" parent="menu_meta_reports" action="action_meta_funnel_report" sequence="40"/>
     <menuitem id="menu_meta_logs" name="Audit Logs" parent="menu_meta_root" action="action_meta_lead_log" sequence="40"/>
+    <menuitem id="menu_meta_identities" name="Lead Identities" parent="menu_meta_root" action="action_meta_lead_identity" sequence="41"/>
+    <menuitem id="menu_meta_backfill" name="Leads Backfill" parent="menu_meta_root" action="action_meta_lead_backfill_wizard" sequence="42" groups="crm_meta_lead_ads.group_meta_lead_manager"/>
 </odoo>

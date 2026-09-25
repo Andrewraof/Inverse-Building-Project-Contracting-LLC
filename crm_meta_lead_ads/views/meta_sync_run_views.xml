@@ -1,0 +1,148 @@
+<odoo>
+    <record id="view_meta_sync_run_search" model="ir.ui.view">
+        <field name="name">meta.sync.run.search</field>
+        <field name="model">meta.sync.run</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="account_id"/>
+                <filter name="running" string="Running" domain="[('state','=','running')]"/>
+                <filter name="completed" string="Completed" domain="[('state','in',['completed','completed_warnings'])]"/>
+                <filter name="failed" string="Failed" domain="[('state','=','failed')]"/>
+                <group colspan="16">
+                    <filter string="State" name="group_state" context="{'group_by':'state'}"/>
+                    <filter string="Account" name="group_account" context="{'group_by':'account_id'}"/>
+                    <filter string="Type" name="group_type" context="{'group_by':'run_type'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+    <record id="view_meta_sync_run_list" model="ir.ui.view">
+        <field name="name">meta.sync.run.list</field>
+        <field name="model">meta.sync.run</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="account_id"/>
+                <field name="run_type"/>
+                <field name="state" widget="badge"/>
+                <field name="current_step" optional="hide"/>
+                <field name="pages_synced" optional="hide"/>
+                <field name="leads_fetched" optional="show"/>
+                <field name="leads_created" optional="show"/>
+                <field name="leads_matched" optional="show"/>
+                <field name="leads_ambiguous" optional="hide"/>
+                <field name="leads_failed" optional="show"/>
+                <field name="conversations_created" optional="hide"/>
+                <field name="messages_created" optional="hide"/>
+                <field name="warning_count" optional="show"/>
+                <field name="started_at" optional="show"/>
+                <field name="ended_at" optional="hide"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_meta_sync_run_form" model="ir.ui.view">
+        <field name="name">meta.sync.run.form</field>
+        <field name="model">meta.sync.run</field>
+        <field name="arch" type="xml">
+            <form create="0">
+                <header>
+                    <button name="action_start" type="object" string="Start" class="btn-primary" invisible="state not in ['draft','failed']"/>
+                    <button name="action_cancel" type="object" string="Cancel" invisible="state not in ['draft','running']"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,running,completed,completed_warnings"/>
+                </header>
+                <sheet>
+                    <div class="oe_title"><h1><field name="name" readonly="1"/></h1></div>
+                    <group>
+                        <group>
+                            <field name="account_id" readonly="1"/>
+                            <field name="run_type" readonly="1"/>
+                            <field name="page_ids" widget="many2many_tags" readonly="1"/>
+                            <field name="user_id" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="date_from" readonly="1"/>
+                            <field name="date_to" readonly="1"/>
+                            <field name="max_pages" readonly="1"/>
+                            <field name="max_records" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Pages &amp; Forms">
+                        <group>
+                            <field name="pages_synced" readonly="1"/>
+                            <field name="forms_fetched" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="forms_created" readonly="1"/>
+                            <field name="forms_updated" readonly="1"/>
+                            <field name="forms_archived" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Leads">
+                        <group>
+                            <field name="leads_fetched" readonly="1"/>
+                            <field name="leads_queued" readonly="1"/>
+                            <field name="leads_created" readonly="1"/>
+                            <field name="leads_matched" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="leads_duplicate" readonly="1"/>
+                            <field name="leads_ambiguous" readonly="1"/>
+                            <field name="leads_failed" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Conversations &amp; Messages">
+                        <group>
+                            <field name="conversations_created" readonly="1"/>
+                            <field name="conversations_updated" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="messages_created" readonly="1"/>
+                            <field name="messages_duplicate" readonly="1"/>
+                            <field name="messages_failed" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Health">
+                        <group>
+                            <field name="warning_count" readonly="1"/>
+                            <field name="missing_permissions" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="started_at" readonly="1"/>
+                            <field name="ended_at" readonly="1"/>
+                        </group>
+                    </group>
+                    <group invisible="not error_message">
+                        <field name="error_message" readonly="1" nolabel="1"/>
+                    </group>
+                    <notebook>
+                        <page string="Steps" name="steps">
+                            <field name="line_ids">
+                                <list create="0" edit="0" delete="0">
+                                    <field name="step"/>
+                                    <field name="state" widget="badge"/>
+                                    <field name="message"/>
+                                    <field name="started_at"/>
+                                    <field name="ended_at"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter reload_on_post="True"/>
+            </form>
+        </field>
+    </record>
+    <record id="action_meta_sync_run" model="ir.actions.act_window">
+        <field name="name">Meta Sync Runs</field>
+        <field name="res_model">meta.sync.run</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_meta_sync_run_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No sync runs yet. Use "Sync All Meta Data" on a Meta account to start one.
+            </p>
+        </field>
+    </record>
+</odoo>

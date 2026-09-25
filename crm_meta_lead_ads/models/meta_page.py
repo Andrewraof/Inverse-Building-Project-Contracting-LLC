@@ -262,54 +262,64 @@ class MetaPage(models.Model):
             form.write(vals)
             return 'updated'
 
-    def action_sync_forms(self):
+    def _sync_forms_stats(self):
+        """Sync this page's leadgen forms and return counters
+        {fetched, created, updated, archived, pages}. Used both by the
+        form button and by meta.sync.run; raises a sanitized UserError on
+        failure (raw IntegrityError propagates untouched)."""
+        self.ensure_one()
         Form = self.env['meta.form'].with_context(active_test=False)
+        stats = {'fetched': 0, 'created': 0, 'updated': 0, 'archived': 0, 'pages': 0}
+        seen_cursors, after = set(), None
+        try:
+            while True:
+                params = {'fields': 'id,name,status,created_time,questions', 'limit': 100}
+                if after:
+                    params['after'] = after
+                data = self.account_id._request(
+                    'GET', f'{self.meta_page_id}/leadgen_forms',
+                    token=self.page_access_token, params=params)
+                stats['pages'] += 1
+                items = data.get('data') or []
+                stats['fetched'] += len(items)
+                for item in items:
+                    if not item.get('id'):
+                        continue
+                    if self._upsert_form_from_meta(Form, item) == 'created':
+                        stats['created'] += 1
+                    else:
+                        stats['updated'] += 1
+                    if item.get('status') == 'ARCHIVED':
+                        stats['archived'] += 1
+                cursors = (data.get('paging') or {}).get('cursors') or {}
+                new_after = cursors.get('after')
+                if not new_after or not items:
+                    break
+                if new_after in seen_cursors:
+                    _logger.warning(
+                        'Meta form sync for page %s: repeated pagination cursor; stopping.',
+                        self.meta_page_id)
+                    break
+                if stats['pages'] >= FORM_SYNC_MAX_PAGES:
+                    _logger.warning(
+                        'Meta form sync for page %s: page limit %s reached; stopping.',
+                        self.meta_page_id, FORM_SYNC_MAX_PAGES)
+                    break
+                seen_cursors.add(new_after)
+                after = new_after
+        except IntegrityError:
+            raise
+        except Exception as exc:
+            safe = self.account_id._sanitize_error(exc, self._subscription_secrets())
+            raise UserError(_('Meta form sync failed: %s') % safe) from exc
+        return stats
+
+    def action_sync_forms(self):
         for rec in self:
-            fetched = created = updated = archived = pages = 0
-            seen_cursors, after = set(), None
-            try:
-                while True:
-                    params = {'fields': 'id,name,status,created_time,questions', 'limit': 100}
-                    if after:
-                        params['after'] = after
-                    data = rec.account_id._request(
-                        'GET', f'{rec.meta_page_id}/leadgen_forms',
-                        token=rec.page_access_token, params=params)
-                    pages += 1
-                    items = data.get('data') or []
-                    fetched += len(items)
-                    for item in items:
-                        if not item.get('id'):
-                            continue
-                        if rec._upsert_form_from_meta(Form, item) == 'created':
-                            created += 1
-                        else:
-                            updated += 1
-                        if item.get('status') == 'ARCHIVED':
-                            archived += 1
-                    cursors = (data.get('paging') or {}).get('cursors') or {}
-                    new_after = cursors.get('after')
-                    if not new_after or not items:
-                        break
-                    if new_after in seen_cursors:
-                        _logger.warning(
-                            'Meta form sync for page %s: repeated pagination cursor; stopping.',
-                            rec.meta_page_id)
-                        break
-                    if pages >= FORM_SYNC_MAX_PAGES:
-                        _logger.warning(
-                            'Meta form sync for page %s: page limit %s reached; stopping.',
-                            rec.meta_page_id, FORM_SYNC_MAX_PAGES)
-                        break
-                    seen_cursors.add(new_after)
-                    after = new_after
-            except IntegrityError:
-                raise
-            except Exception as exc:
-                safe = rec.account_id._sanitize_error(exc, rec._subscription_secrets())
-                raise UserError(_('Meta form sync failed: %s') % safe) from exc
+            stats = rec._sync_forms_stats()
             rec.last_sync_at = fields.Datetime.now()
             _logger.info(
                 'Meta form sync page %s: fetched=%s created=%s updated=%s archived=%s pages=%s',
-                rec.meta_page_id, fetched, created, updated, archived, pages)
+                rec.meta_page_id, stats['fetched'], stats['created'],
+                stats['updated'], stats['archived'], stats['pages'])
         return True

@@ -8,5 +8,8 @@ from . import meta_lead_log
 from . import meta_lead_identity
 from . import meta_message
 from . import meta_conversation
+from . import meta_sync_run
+from . import meta_routing_rule
+from . import meta_lead_backfill_wizard
 from . import crm_lead
 from . import res_config_settings
