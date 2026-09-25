@@ -15,7 +15,7 @@ class TestMetaLeadAccess(TransactionCase):
             groups='base.group_user,sales_team.group_sale_salesman')
         cls.meta_user = new_test_user(
             cls.env, login='meta_access_meta_user',
-            groups='base.group_user,sales_team.group_sale_salesman,'
+            groups='base.group_user,sales_team.group_sale_salesman_all_leads,'
                    'crm_meta_lead_ads.group_meta_lead_user')
         cls.lead = cls.env['crm.lead'].create({
             'name': 'Meta Access Lead', 'type': 'opportunity',
