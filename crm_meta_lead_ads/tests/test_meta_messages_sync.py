@@ -436,6 +436,26 @@ class TestMetaMessagesSync(TransactionCase):
         self.assertEqual(conv.last_message_preview, 'customer')
         self.assertEqual(conv.unread_count, 0)
 
+    def test_immediate_successful_reply_is_not_awaiting_first_response(self):
+        conv = self.Conversation._get_or_create(self.page, 'PS-IMMEDIATE')
+        for mid, direction in [('immediate-in', 'inbound'),
+                               ('immediate-out', 'outbound')]:
+            self.Message.create({
+                'company_id': self.env.company.id, 'page_id': self.page.id,
+                'conversation_id': conv.id, 'sender_psid': 'PS-IMMEDIATE',
+                'meta_message_id': mid, 'direction': direction,
+                'send_state': 'sent' if direction == 'outbound' else False,
+                'sent_at': '2026-09-20 10:00:00',
+            })
+        conv._refresh_history_metrics()
+        self.assertEqual(conv.first_response_seconds, 0)
+        self.assertEqual(conv.first_response_at, datetime(2026, 9, 20, 10, 0))
+        awaiting = self.Conversation.search([
+            ('id', '=', conv.id), ('last_inbound_at', '!=', False),
+            ('first_response_at', '=', False),
+        ])
+        self.assertFalse(awaiting)
+
     def test_history_refresh_corrects_stale_metrics_idempotently(self):
         conv = self.Conversation._get_or_create(self.page, 'PS-STALE')
         self.Message.create({

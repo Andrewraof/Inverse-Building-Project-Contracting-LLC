@@ -11,5 +11,7 @@ from . import meta_conversation
 from . import meta_sync_run
 from . import meta_routing_rule
 from . import meta_lead_backfill_wizard
+from . import meta_conversation_link_lead_wizard
+from . import meta_ad_insight
 from . import crm_lead
 from . import res_config_settings

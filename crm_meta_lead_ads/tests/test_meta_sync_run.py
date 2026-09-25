@@ -200,6 +200,32 @@ class TestMetaSyncRun(TransactionCase):
         self.assertEqual(run.line_ids.filtered(lambda line: line.step == 'forms').state,
                          'done')
 
+    def test_empty_permission_response_does_not_block_form_sync(self):
+        """An empty permissions edge is unknown, not proof of denial."""
+        def handler(path, params):
+            if path == 'me/permissions':
+                return {'data': []}
+            if path == 'me':
+                return {'id': 'user-1'}
+            if path == 'me/accounts':
+                return {'data': []}
+            if path == '700/leadgen_forms':
+                return {'data': []}
+            raise AssertionError('unexpected path %s' % path)
+
+        run = self._new_run(run_type='forms')
+        run.action_start()
+        patcher, state = self._patch_request(handler)
+        with patcher:
+            self._drain(run)
+        run.invalidate_recordset()
+        self.assertEqual(run.state, 'completed')
+        self.assertFalse(run.missing_permissions)
+        self.assertIn('me/accounts', [call['path'] for call in state['calls']])
+        self.assertIn('700/leadgen_forms', [call['path'] for call in state['calls']])
+        self.assertEqual(run.line_ids.filtered(lambda line: line.step == 'forms').state,
+                         'done')
+
     # 3. Two active runs for the same account are rejected.
     def test_no_concurrent_runs_per_account(self):
         run1 = self._new_run()

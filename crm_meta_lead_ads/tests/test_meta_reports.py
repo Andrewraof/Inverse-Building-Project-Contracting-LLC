@@ -1,6 +1,8 @@
 from odoo import fields
 from odoo.tests.common import TransactionCase
 
+from psycopg2 import IntegrityError
+
 
 class TestMetaReports(TransactionCase):
     @classmethod
@@ -52,6 +54,22 @@ class TestMetaReports(TransactionCase):
         self.assertIn('filter_overdue', arch)
         self.assertIn('last_inbound_at', arch)
         self.assertIn('filter_state_pending', arch)
+        self.assertIn('filter_awaiting_response', arch)
+        self.assertIn("('first_response_at', '=', False)", arch)
+
+    # 3b. The conversation pivot measures lead conversion per assignee.
+    def test_conversation_pivot_measures_lead_conversion(self):
+        view = self.env.ref('crm_meta_lead_ads.view_meta_conversation_pivot')
+        arch = view.arch_db
+        self.assertIn('lead_id', arch)
+        self.assertIn('first_response_seconds', arch)
+
+    # 3c. The leads pivot breaks down by sales team and salesperson.
+    def test_leads_pivot_has_team_and_user_rows(self):
+        view = self.env.ref('crm_meta_lead_ads.view_crm_lead_meta_pivot')
+        arch = view.arch_db
+        self.assertIn('team_id', arch)
+        self.assertIn('user_id', arch)
 
     # 4. CPL unavailability is documented on the Diagnostics tab.
     def test_cpl_permission_notice_documented(self):
@@ -105,3 +123,49 @@ class TestMetaReports(TransactionCase):
             ['processing_seconds:sum', 'attempts:sum'], ['match_result'])
         self.assertEqual(len(groups), 1)
         self.assertEqual(groups[0]['processing_seconds'], 30.0)
+
+
+class TestMetaAdInsight(TransactionCase):
+    # CPL structure: populated only once Meta grants ads_read.
+
+    def _row(self, **extra):
+        vals = {'date': '2026-09-01', 'company_id': self.env.company.id,
+                'meta_campaign_id': 'camp-1', 'meta_adset_id': 'adset-1',
+                'meta_ad_id': 'ad-1', 'spend': 100.0, 'impressions': 1000,
+                'clicks': 50, 'leads_count': 4}
+        vals.update(extra)
+        return self.env['meta.ad.insight'].create(vals)
+
+    # 1. CPL is spend over leads, zero-safe.
+    def test_cpl_compute(self):
+        row = self._row()
+        self.assertEqual(row.cpl, 25.0)
+        no_leads = self._row(date='2026-09-02', leads_count=0)
+        self.assertEqual(no_leads.cpl, 0.0)
+
+    # 2. One row per (company, day, campaign, adset, ad).
+    def test_unique_row_per_ad_day(self):
+        self._row()
+        with self.assertRaises(IntegrityError):
+            with self.env.cr.savepoint():
+                self._row()
+
+    # 3. Rows are isolated per company.
+    def test_company_record_rule(self):
+        other_company = self.env['res.company'].create({'name': 'Insight Co'})
+        self._row()
+        self._row(date='2026-09-02', company_id=other_company.id)
+        user = self.env['res.users'].create({
+            'name': 'Insight User', 'login': 'insight-user@test',
+            'company_id': self.env.company.id, 'company_ids': [(4, self.env.company.id)],
+            'group_ids': [(4, self.env.ref('crm_meta_lead_ads.group_meta_lead_user').id)],
+        })
+        visible = self.env['meta.ad.insight'].with_user(user).search([])
+        self.assertEqual(len(visible), 1)
+
+    # 4. Report views and the menu action exist.
+    def test_insight_report_views_exist(self):
+        pivot = self.env.ref('crm_meta_lead_ads.view_meta_ad_insight_pivot')
+        self.assertEqual(pivot.type, 'pivot')
+        action = self.env.ref('crm_meta_lead_ads.action_meta_ad_insight')
+        self.assertEqual(action.res_model, 'meta.ad.insight')
