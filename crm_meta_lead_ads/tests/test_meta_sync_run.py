@@ -1,7 +1,8 @@
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from odoo.exceptions import UserError, ValidationError
 from odoo.tests.common import TransactionCase
+from odoo.addons.crm_meta_lead_ads.models.meta_account import MetaPermissionError
 
 RUN_LOGGER = 'odoo.addons.crm_meta_lead_ads.models.meta_sync_run'
 
@@ -85,12 +86,36 @@ class TestMetaSyncRun(TransactionCase):
         self.assertEqual(set(run.line_ids.mapped('step')),
                          {'connection', 'pages', 'forms', 'leads', 'conversations', 'messages'})
 
-    # 2. Missing permission -> the dependent step is skipped with a warning
-    #    and the run completes with warnings, never failing wholesale.
-    def test_missing_permission_skips_step_with_warning(self):
+    # Permission diagnostics on the user token must not preempt a successful
+    # operation using a Page token.
+    def test_declined_user_permission_does_not_skip_page_token_leads(self):
         def handler(path, params):
             if path == 'me/permissions':
-                return {'data': [{'name': 'pages_show_list', 'status': 'granted'}]}
+                return {'data': [{'name': 'leads_retrieval', 'status': 'declined'}]}
+            if path == 'me':
+                return {'id': 'user-1'}
+            if path == 'FR1/leads':
+                return {'data': []}
+            raise AssertionError('unexpected path %s' % path)
+        run = self._new_run(run_type='leads')
+        run.action_start()
+        patcher, state = self._patch_request(handler)
+        with patcher:
+            self._drain(run)
+        run.invalidate_recordset()
+        self.assertEqual(run.state, 'completed_warnings')
+        self.assertIn('leads_retrieval', run.missing_permissions or '')
+        self.assertIn('FR1/leads', [call['path'] for call in state['calls']])
+        leads_line = run.line_ids.filtered(lambda l: l.step == 'leads')
+        self.assertEqual(leads_line.state, 'done')
+
+    def test_declined_user_permissions_do_not_skip_page_token_forms(self):
+        def handler(path, params):
+            if path == 'me/permissions':
+                return {'data': [
+                    {'name': 'pages_show_list', 'status': 'declined'},
+                    {'name': 'pages_read_engagement', 'status': 'declined'},
+                ]}
             if path == 'me':
                 return {'id': 'user-1'}
             if path == 'me/accounts':
@@ -98,16 +123,56 @@ class TestMetaSyncRun(TransactionCase):
             if path == '700/leadgen_forms':
                 return {'data': []}
             raise AssertionError('unexpected path %s' % path)
-        run = self._new_run(run_type='leads')
+
+        run = self._new_run(run_type='forms')
         run.action_start()
-        patcher, _state = self._patch_request(handler)
+        patcher, state = self._patch_request(handler)
         with patcher:
             self._drain(run)
         run.invalidate_recordset()
         self.assertEqual(run.state, 'completed_warnings')
-        self.assertIn('leads_retrieval', run.missing_permissions or '')
-        leads_line = run.line_ids.filtered(lambda l: l.step == 'leads')
-        self.assertEqual(leads_line.state, 'warning')
+        self.assertIn('me/accounts', [call['path'] for call in state['calls']])
+        self.assertIn('700/leadgen_forms', [call['path'] for call in state['calls']])
+        self.assertEqual(run.line_ids.filtered(lambda l: l.step == 'forms').state,
+                         'done')
+
+    def test_real_permission_denial_warns_but_next_step_runs(self):
+        def handler(path, params):
+            if path == 'me/permissions':
+                return {'data': [{'name': 'pages_show_list', 'status': 'declined'}]}
+            if path == 'me':
+                return {'id': 'user-1'}
+            if path == 'me/accounts':
+                return MetaPermissionError('Meta denied permission (code 200).')
+            if path == '700/leadgen_forms':
+                return {'data': []}
+            raise AssertionError('unexpected path %s' % path)
+
+        run = self._new_run(run_type='forms')
+        run.action_start()
+        patcher, state = self._patch_request(handler)
+        with patcher:
+            self._drain(run)
+        run.invalidate_recordset()
+        self.assertEqual(run.state, 'completed_warnings')
+        self.assertEqual(run.line_ids.filtered(lambda l: l.step == 'pages').state,
+                         'warning')
+        self.assertEqual(run.line_ids.filtered(lambda l: l.step == 'forms').state,
+                         'done')
+        self.assertIn('700/leadgen_forms', [call['path'] for call in state['calls']])
+
+    def test_graph_permission_error_is_typed_and_does_not_leak_token(self):
+        response = Mock(status_code=403, content=b'{"error": {}}', text='ignored')
+        response.json.return_value = {'error': {
+            'code': 200, 'message': 'Missing permission pagetok-RUN-SECRET',
+        }}
+        with patch('odoo.addons.crm_meta_lead_ads.models.meta_account.requests.request',
+                   return_value=response):
+            with self.assertRaises(MetaPermissionError) as caught:
+                self.account._request('GET', '700/leadgen_forms',
+                                      token=self.page.page_access_token)
+        self.assertIn('200', str(caught.exception))
+        self.assertNotIn('pagetok-RUN-SECRET', str(caught.exception))
 
     def test_empty_permission_response_does_not_block_form_sync(self):
         """An empty permissions edge is unknown, not proof of denial."""

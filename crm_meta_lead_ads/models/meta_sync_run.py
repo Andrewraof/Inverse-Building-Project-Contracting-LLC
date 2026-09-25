@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError, ValidationError
+from .meta_account import MetaPermissionError
 
 _logger = logging.getLogger(__name__)
 
@@ -14,15 +15,6 @@ RUN_TYPE_STEPS = {
     'leads': ('connection', 'leads'),
     'messages': ('connection', 'conversations', 'messages'),
     'forms': ('connection', 'pages', 'forms'),
-}
-# Permission codenames each step needs; a step whose permission is missing
-# is skipped with a warning instead of failing the whole run.
-STEP_PERMISSIONS = {
-    'pages': ('pages_show_list',),
-    'forms': ('pages_show_list',),
-    'leads': ('leads_retrieval',),
-    'conversations': ('pages_messaging',),
-    'messages': ('pages_messaging',),
 }
 TICK_SECONDS = 45
 TICK_QUEUE_RECORDS = 20
@@ -177,9 +169,6 @@ class MetaSyncRun(models.Model):
         pages = self.page_ids or self.account_id.page_ids
         return pages.with_context(active_test=False).filtered('sync_enabled').sorted('id')
 
-    def _missing_set(self):
-        return {p.strip() for p in (self.missing_permissions or '').split(',') if p.strip()}
-
     # ------------------------------------------------------------------
     # Engine
     # ------------------------------------------------------------------
@@ -224,14 +213,18 @@ class MetaSyncRun(models.Model):
 
     def _execute_step(self, step, ctx, deadline):
         line = self._step_line(step)
-        blocked = sorted(set(STEP_PERMISSIONS.get(step, ())) & self._missing_set())
-        if blocked:
-            self._warn(line, 'step skipped: missing Meta permission(s): %s' % ', '.join(blocked))
-            self._finish_line(line, state='warning',
-                              message='Skipped — missing permission: %s' % ', '.join(blocked))
-            return True
         handler = getattr(self, '_step_%s' % step)
-        finished = handler(ctx, deadline, line)
+        try:
+            # A user-token permission diagnostic cannot establish what a
+            # Page token can do. Try Graph, and discard partial step writes
+            # if Graph itself rejects the operation.
+            with self.env.cr.savepoint():
+                finished = handler(ctx, deadline, line)
+        except MetaPermissionError as exc:
+            message = '%s step: %s' % (step, exc)
+            self._warn(line, message)
+            self._finish_line(line, state='warning', message=message)
+            return True
         if finished and line.state == 'running':
             self._finish_line(line)
         return finished
@@ -246,7 +239,8 @@ class MetaSyncRun(models.Model):
         granted, missing = account._fetch_permissions()
         if missing:
             self.missing_permissions = ','.join(missing)
-            self._warn(line, 'missing Meta permission(s): %s' % ', '.join(missing))
+            self._warn(line, 'user-token permission diagnostics report missing: %s; '
+                       'each sync operation will still be attempted' % ', '.join(missing))
         return True
 
     def _step_pages(self, ctx, deadline, line):
