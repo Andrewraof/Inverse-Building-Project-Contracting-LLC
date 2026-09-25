@@ -70,6 +70,49 @@ class TestMetaConversationLinking(TransactionCase):
         self.assertEqual(conv.lead_id, lead)
         self.assertEqual(lead.meta_conversation_id, conv)
 
+    def test_rejected_direct_conversation_create_leaves_no_record(self):
+        existing = self._conversation('already-linked')
+        lead = self._lead()
+        existing._link_to_lead(lead)
+        with self.assertRaises(UserError):
+            self._conversation('failed-direct-create', lead_id=lead.id)
+        self.assertFalse(self.Conversation.search([
+            ('psid', '=', 'failed-direct-create'), ('page_id', '=', self.page.id)]))
+
+    def test_rejected_direct_crm_create_leaves_no_record(self):
+        conv = self._conversation('already-has-lead')
+        lead = self._lead('Existing Link Lead')
+        conv._link_to_lead(lead)
+        with self.assertRaises(UserError):
+            self._lead('Failed Direct Lead', meta_conversation_id=conv.id)
+        self.assertFalse(self.Lead.search([('name', '=', 'Failed Direct Lead')]))
+
+    def test_direct_crm_lead_write_keeps_both_links_consistent(self):
+        conv = self._conversation('crm-write')
+        lead = self._lead()
+        lead.write({'meta_conversation_id': conv.id})
+        self.assertEqual(conv.lead_id, lead)
+        self.assertEqual(lead.meta_conversation_id, conv)
+        with self.assertRaises(UserError):
+            lead.write({'meta_conversation_id': False})
+        self.assertEqual(conv.lead_id, lead)
+
+    def test_direct_crm_lead_create_keeps_both_links_consistent(self):
+        conv = self._conversation('crm-create')
+        lead = self._lead(meta_conversation_id=conv.id)
+        self.assertEqual(conv.lead_id, lead)
+        self.assertEqual(lead.meta_conversation_id, conv)
+
+    def test_direct_crm_lead_write_cannot_link_second_lead(self):
+        conv = self._conversation('crm-second')
+        first = self._lead('First')
+        second = self._lead('Second')
+        first.write({'meta_conversation_id': conv.id})
+        with self.assertRaises(UserError):
+            second.write({'meta_conversation_id': conv.id})
+        self.assertFalse(second.meta_conversation_id)
+        self.assertEqual(conv.lead_id, first)
+
     # 2. A linked conversation cannot be linked again.
     def test_link_refuses_when_conversation_already_linked(self):
         conv = self._conversation()
