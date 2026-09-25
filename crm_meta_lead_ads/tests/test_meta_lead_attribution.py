@@ -150,6 +150,26 @@ class TestMetaLeadAttribution(TransactionCase):
                            'meta_adset_name', 'meta_ad_name', 'meta_adgroup_id'):
             self.assertIn(field_name, arch)
 
+    def test_crm_only_user_can_edit_lead_without_meta_identity_access(self):
+        """CRM staff must not need the Meta role to open and edit a lead."""
+        user = self.env['res.users'].create({
+            'name': 'CRM-only user', 'login': 'crm_only_identity_test',
+            'group_ids': [(6, 0, [self.env.ref('sales_team.group_sale_salesman').id])],
+        })
+        lead = self.Lead.create({'name': 'Customer lead'})
+        self.env['meta.lead.identity'].create({
+            'company_id': self.env.company.id, 'crm_lead_id': lead.id,
+            'meta_lead_id': 'crm-only-access-1', 'match_type': 'created',
+        })
+        Lead = self.Lead.with_user(user)
+        arch = Lead.get_view(view_type='form')['arch']
+        self.assertNotIn('meta_identity_count', arch)
+        self.assertNotIn('action_open_meta_conversation', arch)
+        self.assertNotIn('meta_routing_rule_id', arch)
+        self.assertNotIn('meta_identity_count', Lead.fields_get(['meta_identity_count']))
+        Lead.browse(lead.id).write({'name': 'Customer lead updated'})
+        self.assertEqual(lead.name, 'Customer lead updated')
+
     # --- Migration 19.0.3.0.0 ---
 
     def _load_migration(self):
