@@ -37,6 +37,7 @@ class MetaConversation(models.Model):
     last_inbound_at = fields.Datetime(readonly=True, index=True,
                                       help='Last customer message; drives the 24h window and overdue filters.')
     first_response_seconds = fields.Integer(readonly=True, copy=False,
+                                            aggregator='avg',
                                             help='Seconds from the first inbound message to the first page reply.')
     first_response_at = fields.Datetime(readonly=True, copy=False, index=True,
                                         help='Timestamp of the first successful page reply after the first inbound message.')

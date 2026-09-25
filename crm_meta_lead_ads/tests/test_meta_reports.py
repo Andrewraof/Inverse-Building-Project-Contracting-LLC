@@ -30,6 +30,7 @@ class TestMetaReports(TransactionCase):
             'view_crm_lead_meta_pivot': ('crm.lead', 'pivot'),
             'view_crm_lead_meta_graph': ('crm.lead', 'graph'),
             'view_meta_conversation_pivot': ('meta.conversation', 'pivot'),
+            'view_meta_first_response_pivot': ('meta.conversation', 'pivot'),
             'view_meta_conversation_graph': ('meta.conversation', 'graph'),
             'view_crm_lead_meta_funnel_pivot': ('crm.lead', 'pivot'),
         }
@@ -68,6 +69,8 @@ class TestMetaReports(TransactionCase):
         arch = view.arch_db
         self.assertIn('name="linked_lead_count" type="measure"', arch)
         self.assertNotIn('name="first_response_seconds" type="measure"', arch)
+        response_view = self.env.ref('crm_meta_lead_ads.view_meta_first_response_pivot')
+        self.assertIn('name="first_response_seconds" type="measure"', response_view.arch_db)
 
     def test_first_response_report_averages_only_replied_conversations(self):
         Conv = self.env['meta.conversation']
