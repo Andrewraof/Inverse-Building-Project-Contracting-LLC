@@ -1,3 +1,6 @@
+import importlib.util
+import os
+
 from odoo import fields
 from odoo.tests.common import TransactionCase
 
@@ -78,6 +81,40 @@ class TestMetaReports(TransactionCase):
         groups = Conv.read_group(
             [('page_id', '=', self.page.id)], ['linked_lead_count:sum'], [])
         self.assertEqual(groups[0]['linked_lead_count'], 1)
+
+    def test_upgrade_backfills_first_reply_and_linked_count_idempotently(self):
+        Conv = self.env['meta.conversation']
+        conv = Conv.create({
+            'company_id': self.env.company.id, 'page_id': self.page.id,
+            'psid': 'report-upgrade',
+        })
+        conv.action_create_lead()
+        Message = self.env['meta.message']
+        for mid, direction in [('upgrade-in', 'inbound'),
+                               ('upgrade-out', 'outbound')]:
+            Message.create({
+                'company_id': self.env.company.id, 'page_id': self.page.id,
+                'conversation_id': conv.id, 'sender_psid': conv.psid,
+                'meta_message_id': mid, 'direction': direction,
+                'send_state': 'sent' if direction == 'outbound' else False,
+                'sent_at': '2026-09-20 10:00:00',
+            })
+        self.env.flush_all()
+        self.env.cr.execute(
+            'UPDATE meta_conversation SET first_response_at = NULL, '
+            'linked_lead_count = 0 WHERE id = %s', (conv.id,))
+        conv.invalidate_recordset(['first_response_at', 'linked_lead_count'])
+        path = os.path.join(os.path.dirname(__file__), '..', 'migrations',
+                            '19.0.4.1.0', 'post-migration.py')
+        spec = importlib.util.spec_from_file_location('meta_upgrade_19_0_4_1_0', path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for _ in range(2):
+            module.migrate(self.env.cr, '19.0.4.0.0')
+            conv.invalidate_recordset(['first_response_at', 'linked_lead_count'])
+            self.assertEqual(conv.first_response_at,
+                             fields.Datetime.to_datetime('2026-09-20 10:00:00'))
+            self.assertEqual(conv.linked_lead_count, 1)
 
     # 3c. The leads pivot breaks down by sales team and salesperson.
     def test_leads_pivot_has_team_and_user_rows(self):
