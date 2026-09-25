@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError, ValidationError
+from .meta_account import MetaPermissionError
 
 _logger = logging.getLogger(__name__)
 
@@ -15,18 +16,10 @@ RUN_TYPE_STEPS = {
     'messages': ('connection', 'conversations', 'messages'),
     'forms': ('connection', 'pages', 'forms'),
 }
-# Permission codenames each step needs; a step whose permission is missing
-# is skipped with a warning instead of failing the whole run.
-STEP_PERMISSIONS = {
-    'pages': ('pages_show_list',),
-    'forms': ('pages_show_list',),
-    'leads': ('leads_retrieval',),
-    'conversations': ('pages_messaging',),
-    'messages': ('pages_messaging',),
-}
 TICK_SECONDS = 45
 TICK_QUEUE_RECORDS = 20
 LEADS_PAGE_LIMIT = 25
+PROFILE_LOOKUPS_PER_TICK = 30
 
 
 def _parse_graph_dt(value):
@@ -177,9 +170,6 @@ class MetaSyncRun(models.Model):
         pages = self.page_ids or self.account_id.page_ids
         return pages.with_context(active_test=False).filtered('sync_enabled').sorted('id')
 
-    def _missing_set(self):
-        return {p.strip() for p in (self.missing_permissions or '').split(',') if p.strip()}
-
     # ------------------------------------------------------------------
     # Engine
     # ------------------------------------------------------------------
@@ -224,14 +214,18 @@ class MetaSyncRun(models.Model):
 
     def _execute_step(self, step, ctx, deadline):
         line = self._step_line(step)
-        blocked = sorted(set(STEP_PERMISSIONS.get(step, ())) & self._missing_set())
-        if blocked:
-            self._warn(line, 'step skipped: missing Meta permission(s): %s' % ', '.join(blocked))
-            self._finish_line(line, state='warning',
-                              message='Skipped — missing permission: %s' % ', '.join(blocked))
-            return True
         handler = getattr(self, '_step_%s' % step)
-        finished = handler(ctx, deadline, line)
+        try:
+            # A user-token permission diagnostic cannot establish what a
+            # Page token can do. Try Graph, and discard partial step writes
+            # if Graph itself rejects the operation.
+            with self.env.cr.savepoint():
+                finished = handler(ctx, deadline, line)
+        except MetaPermissionError as exc:
+            message = '%s step: %s' % (step, exc)
+            self._warn(line, message)
+            self._finish_line(line, state='warning', message=message)
+            return True
         if finished and line.state == 'running':
             self._finish_line(line)
         return finished
@@ -246,7 +240,8 @@ class MetaSyncRun(models.Model):
         granted, missing = account._fetch_permissions()
         if missing:
             self.missing_permissions = ','.join(missing)
-            self._warn(line, 'missing Meta permission(s): %s' % ', '.join(missing))
+            self._warn(line, 'user-token permission diagnostics report missing: %s; '
+                       'each sync operation will still be attempted' % ', '.join(missing))
         return True
 
     def _step_pages(self, ctx, deadline, line):
@@ -403,13 +398,18 @@ class MetaSyncRun(models.Model):
                 items = data.get('data') or []
                 for thread in items:
                     participants = (thread.get('participants') or {}).get('data') or []
-                    psid = next((str(p.get('id')) for p in participants
-                                 if p.get('id') and str(p['id']) != str(page.meta_page_id)), False)
+                    customer = next((p for p in participants
+                                     if p.get('id') and str(p['id']) != str(page.meta_page_id)), {})
+                    psid = str(customer.get('id') or '')
                     if not psid:
                         continue
                     conv = Conv._get_or_create(page, psid)
                     if not conv:
                         continue
+                    customer_name = customer.get('name')
+                    if (not conv.sender_name and isinstance(customer_name, str)
+                            and customer_name.strip()):
+                        conv.sender_name = customer_name.strip()
                     if conv.meta_thread_id == str(thread.get('id')):
                         continue
                     if conv.meta_thread_id:
@@ -448,6 +448,7 @@ class MetaSyncRun(models.Model):
         ], order='id')
         offset = ctx.get('conv_offset', 0)
         after = ctx.get('after')
+        profile_lookups = 0
         for conv in conversations[offset:]:
             page = conv.page_id
             seen = set()
@@ -471,6 +472,8 @@ class MetaSyncRun(models.Model):
                 if not next_after or not items:
                     after = False
                     conv._refresh_history_metrics()
+                    if self._fill_missing_customer_profile(conv, ctx, line):
+                        profile_lookups += 1
                     conv.history_synced_at = fields.Datetime.now()
                     break
                 if next_after in seen or next_after == after:
@@ -484,8 +487,43 @@ class MetaSyncRun(models.Model):
                     return False
             offset += 1
             ctx.update({'conv_offset': offset, 'after': False})
-            if time.monotonic() > deadline:
+            if profile_lookups >= PROFILE_LOOKUPS_PER_TICK or time.monotonic() > deadline:
                 return False
+        return True
+
+    def _fill_missing_customer_profile(self, conv, ctx, line):
+        """Best-effort Page-token lookup when history supplies no name.
+
+        A profile-specific permission denial must not poison the account or
+        stop the already-authorized conversations/messages sync. Remember the
+        denied page in the resumable step cursor so we do not retry it for
+        every conversation in the same run.
+        """
+        page = conv.page_id
+        blocked = ctx.setdefault('profile_blocked_pages', [])
+        if conv.sender_name or page.id in blocked:
+            return False
+        try:
+            with self.env.cr.savepoint():
+                name = page._fetch_sender_name(conv.psid, raise_errors=True)
+        except MetaPermissionError:
+            blocked.append(page.id)
+            self._warn(line, 'Customer profile lookup was denied for a page; '
+                       'conversation history remains available without names')
+            return True
+        except Exception:
+            failures = ctx.setdefault('profile_failures', {})
+            page_key = str(page.id)
+            failures[page_key] = failures.get(page_key, 0) + 1
+            if failures[page_key] == 1:
+                self._warn(line, 'Customer profile lookup failed for a page; '
+                           'the sync will try other conversations without exposing profile details')
+            if failures[page_key] >= 3:
+                blocked.append(page.id)
+            return True
+        ctx.setdefault('profile_failures', {}).pop(str(page.id), None)
+        if isinstance(name, str) and name.strip():
+            conv.sender_name = name.strip()
         return True
 
     def _upsert_history_message(self, conv, page, item):
@@ -496,13 +534,21 @@ class MetaSyncRun(models.Model):
         mid = str(item.get('id') or '')
         if not mid:
             return 'failed'
-        Message = self.env['meta.message'].sudo()
-        if Message.search([('meta_message_id', '=', mid),
-                           ('company_id', '=', conv.company_id.id)], limit=1):
-            return 'duplicate'
         sender = item.get('from') or {}
         sender_id = str(sender.get('id') or '')
         direction = 'outbound' if sender_id == str(page.meta_page_id) else 'inbound'
+        if (direction == 'inbound' and sender_id == conv.psid
+                and not conv.sender_name and isinstance(sender.get('name'), str)
+                and sender['name'].strip()):
+            conv.sender_name = sender['name'].strip()
+        Message = self.env['meta.message'].sudo()
+        existing = Message.search([('meta_message_id', '=', mid),
+                                   ('company_id', '=', conv.company_id.id)], limit=1)
+        if existing:
+            if (sender_id == conv.psid and conv.sender_name
+                    and not existing.sender_name):
+                existing.sender_name = conv.sender_name
+            return 'duplicate'
         attachments = []
         for attachment in (item.get('attachments') or {}).get('data') or []:
             attachments.append({
@@ -518,7 +564,8 @@ class MetaSyncRun(models.Model):
                 Message.create({
                     'company_id': conv.company_id.id, 'page_id': page.id,
                     'conversation_id': conv.id, 'sender_psid': sender_id or conv.psid,
-                    'sender_name': sender.get('name') or False,
+                    'sender_name': sender.get('name') or (
+                        conv.sender_name if sender_id == conv.psid else False),
                     'message_text': text, 'meta_message_id': mid,
                     'sent_at': _parse_graph_dt(item.get('created_time')) or fields.Datetime.now(),
                     'direction': direction,

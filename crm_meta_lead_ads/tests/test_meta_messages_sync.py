@@ -2,6 +2,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 from odoo.tests.common import TransactionCase
+from odoo.addons.crm_meta_lead_ads.models.meta_account import MetaPermissionError
 
 
 class TestMetaMessagesSync(TransactionCase):
@@ -30,7 +31,7 @@ class TestMetaMessagesSync(TransactionCase):
             return result
         return patch.object(type(self.account), '_request', side_effect=fake)
 
-    def _perms_handler(self, extra):
+    def _perms_handler(self, extra, profile_paths=False):
         def handler(path, params):
             if path == 'me/permissions':
                 return {'data': [
@@ -39,6 +40,8 @@ class TestMetaMessagesSync(TransactionCase):
                         'pages_manage_metadata', 'pages_messaging')]}
             if path == 'me':
                 return {'id': 'user-1'}
+            if path.startswith('PS-') and not profile_paths:
+                return {}
             return extra(path, params)
         return handler
 
@@ -67,6 +70,148 @@ class TestMetaMessagesSync(TransactionCase):
         if after:
             resp['paging'] = {'cursors': {'after': after}}
         return resp
+
+    def test_history_uses_customer_participant_name_without_overwriting_manual_name(self):
+        def extra(path, params):
+            if path == '900/conversations':
+                data = self._threads()
+                data['data'][0]['participants']['data'][1]['name'] = 'Customer One'
+                return data
+            if path == 't-1/messages':
+                return self._messages([])
+            raise AssertionError('unexpected path %s' % path)
+
+        with self._patch_request(self._perms_handler(extra)):
+            self._run_messages()
+        conv = self.Conversation.search([('page_id', '=', self.page.id),
+                                         ('psid', '=', 'PS-100')])
+        self.assertEqual(conv.sender_name, 'Customer One')
+        conv.sender_name = 'Manually Corrected'
+        with self._patch_request(self._perms_handler(extra)):
+            self._run_messages()
+        self.assertEqual(conv.sender_name, 'Manually Corrected')
+
+    def test_history_duplicate_inbound_message_backfills_customer_name(self):
+        conv = self.Conversation._get_or_create(self.page, 'PS-100')
+        self.Message.create({
+            'company_id': self.env.company.id, 'page_id': self.page.id,
+            'conversation_id': conv.id, 'sender_psid': 'PS-100',
+            'meta_message_id': 'm-existing', 'message_text': 'hello',
+            'direction': 'inbound',
+        })
+
+        def extra(path, params):
+            if path == '900/conversations':
+                return self._threads()
+            if path == 't-1/messages':
+                return self._messages([{
+                    'id': 'm-existing', 'from': {'id': 'PS-100', 'name': 'Customer Two'},
+                    'message': 'hello',
+                }, {'id': 'm-page', 'from': {'id': '900', 'name': 'Msg Page'},
+                    'message': 'reply'}])
+            raise AssertionError('unexpected path %s' % path)
+
+        with self._patch_request(self._perms_handler(extra)):
+            run = self._run_messages()
+        self.assertEqual(conv.sender_name, 'Customer Two')
+        self.assertEqual(run.messages_duplicate, 1)
+        self.assertEqual(self.Message.search_count([('meta_message_id', '=', 'm-existing')]), 1)
+        self.assertEqual(self.Message.search([('meta_message_id', '=', 'm-existing')]).sender_name,
+                         'Customer Two')
+        self.assertEqual(self.Message.search([('meta_message_id', '=', 'm-page')]).sender_name,
+                         'Msg Page')
+
+    def test_history_profile_fallback_fills_name_when_payload_has_only_id(self):
+        def extra(path, params):
+            if path == '900/conversations':
+                return self._threads()
+            if path == 't-1/messages':
+                return self._messages([])
+            if path == 'PS-100':
+                self.assertEqual(params.get('fields'), 'first_name,last_name,name')
+                return {'first_name': 'Customer', 'last_name': 'Three'}
+            raise AssertionError('unexpected path %s' % path)
+
+        with self._patch_request(self._perms_handler(extra, profile_paths=True)):
+            self._run_messages()
+        conv = self.Conversation.search([('page_id', '=', self.page.id),
+                                         ('psid', '=', 'PS-100')])
+        self.assertEqual(conv.sender_name, 'Customer Three')
+
+    def test_profile_permission_denial_does_not_break_sync_or_account(self):
+        def extra(path, params):
+            if path == '900/conversations':
+                return {'data': [
+                    {'id': 't-1', 'participants': {'data': [
+                        {'id': '900'}, {'id': 'PS-100'}]}},
+                    {'id': 't-2', 'participants': {'data': [
+                        {'id': '900'}, {'id': 'PS-200'}]}},
+                ]}
+            if path in ('t-1/messages', 't-2/messages'):
+                return self._messages([])
+            raise AssertionError('unexpected path %s' % path)
+
+        def denied(_page, _psid, raise_errors=False):
+            self.account.write({'state': 'error', 'error_message': '200: profile denied'})
+            raise MetaPermissionError('profile denied')
+
+        with self._patch_request(self._perms_handler(extra)), \
+                patch.object(type(self.page), '_fetch_sender_name', autospec=True,
+                             side_effect=denied) as lookup:
+            run = self._run_messages()
+        self.assertEqual(run.state, 'completed_warnings')
+        self.assertEqual(lookup.call_count, 1)
+        self.account.invalidate_recordset()
+        self.assertEqual(self.account.state, 'connected')
+        self.assertFalse(self.account.error_message)
+        self.assertEqual(self.Conversation.search_count([
+            ('page_id', '=', self.page.id), ('psid', 'in', ('PS-100', 'PS-200'))]), 2)
+
+    def test_transient_profile_failure_does_not_skip_next_customer(self):
+        def extra(path, params):
+            if path == '900/conversations':
+                return {'data': [
+                    {'id': 't-1', 'participants': {'data': [
+                        {'id': '900'}, {'id': 'PS-100'}]}},
+                    {'id': 't-2', 'participants': {'data': [
+                        {'id': '900'}, {'id': 'PS-200'}]}},
+                ]}
+            if path in ('t-1/messages', 't-2/messages'):
+                return self._messages([])
+            if path == 'PS-100':
+                raise RuntimeError('temporary timeout')
+            if path == 'PS-200':
+                return {'name': 'Second Customer'}
+            raise AssertionError('unexpected path %s' % path)
+
+        with self._patch_request(self._perms_handler(extra, profile_paths=True)):
+            run = self._run_messages()
+        self.assertEqual(run.state, 'completed_warnings')
+        conv = self.Conversation.search([('page_id', '=', self.page.id),
+                                         ('psid', '=', 'PS-200')])
+        self.assertEqual(conv.sender_name, 'Second Customer')
+
+    def test_unknown_message_sender_never_inherits_customer_name(self):
+        def extra(path, params):
+            if path == '900/conversations':
+                data = self._threads()
+                data['data'][0]['participants']['data'][1]['name'] = 'Customer Four'
+                return data
+            if path == 't-1/messages':
+                return self._messages([
+                    {'id': 'm-unknown', 'message': 'unknown sender'},
+                    {'id': 'm-customer', 'message': 'known sender',
+                     'from': {'id': 'PS-100'}},
+                ])
+            raise AssertionError('unexpected path %s' % path)
+
+        with self._patch_request(self._perms_handler(extra)):
+            self._run_messages()
+        self.assertFalse(self.Message.search([
+            ('meta_message_id', '=', 'm-unknown')]).sender_name)
+        self.assertEqual(self.Message.search([
+            ('meta_message_id', '=', 'm-customer')]).sender_name,
+            'Customer Four')
 
     # 1. Historical sync creates conversation + messages with direction.
     def test_history_sync_creates_conversation_and_messages(self):
@@ -173,19 +318,32 @@ class TestMetaMessagesSync(TransactionCase):
         self.assertEqual(msg_calls[1][1], 'c1')
         self.assertEqual(run.messages_created, 2)
 
-    # 5. Explicitly denied pages_messaging skips the steps with warnings.
-    def test_missing_messaging_permission(self):
+    # 5. A declined user-token scope does not preempt Page-token history.
+    def test_declined_user_messaging_permission_still_attempts_page_token(self):
         def handler(path, params):
             if path == 'me/permissions':
                 return {'data': [{'name': 'pages_messaging', 'status': 'declined'}]}
             if path == 'me':
                 return {'id': 'user-1'}
+            if path == '900/conversations':
+                return self._threads()
+            if path == 't-1/messages':
+                return self._messages([{'id': 'm-declined-user',
+                                        'message': 'From Page token',
+                                        'from': {'id': 'PS-100'},
+                                        'created_time': '2026-09-20T10:00:00+0000'}])
+            if path == 'PS-100':
+                return {}  # A missing profile name is not a messages-step failure.
             raise AssertionError('unexpected path %s' % path)
         with self._patch_request(handler):
             run = self._run_messages()
         self.assertEqual(run.state, 'completed_warnings')
         self.assertIn('pages_messaging', run.missing_permissions or '')
-        self.assertEqual(run.messages_created, 0)
+        self.assertEqual(run.messages_created, 1)
+        self.assertEqual(run.line_ids.filtered(lambda l: l.step == 'conversations').state,
+                         'done')
+        self.assertEqual(run.line_ids.filtered(lambda l: l.step == 'messages').state,
+                         'done')
 
     # 6. Multi-company: history synced for company A never lands in company B.
     def test_company_isolation(self):

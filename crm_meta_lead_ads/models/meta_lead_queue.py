@@ -4,7 +4,7 @@ import logging
 import random
 import time
 from datetime import timedelta
-from psycopg2 import IntegrityError
+from psycopg2 import Error as DatabaseError, IntegrityError
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 from .meta_dedup import normalize_email, normalize_phone
@@ -353,28 +353,56 @@ class MetaLeadQueue(models.Model):
         self.ensure_one()
         if self.state not in ('pending', 'retry', 'failed', 'ambiguous'):
             return
-        self.state = 'processing'
+        graph_account_error = None
         try:
-            payload = self._fetch_lead()
-            self.fetched_payload = payload
-            lead, outcome, detail = self._resolve_crm_lead(payload)
-            self.write({
-                'state': self.OUTCOME_STATE[outcome], 'match_result': outcome,
-                'crm_lead_id': lead.id if lead else False,
-                'processed_at': fields.Datetime.now(), 'error_message': detail or False,
-            })
-            level = 'warning' if outcome == 'ambiguous' else 'info'
-            self._log(level, outcome, detail or 'CRM lead %s' % lead.id,
-                      self._safe_audit_payload(payload))
-            if outcome == 'ambiguous':
-                self._schedule_attention_activity(
-                    _('Meta lead event needs manual resolution (queue %s)') % self.id)
+            # A database error aborts PostgreSQL's transaction. Roll back
+            # this event before the retry handler reads/writes ORM records;
+            # otherwise it masks the original error with InFailedSqlTransaction
+            # and fails the entire sync run.
+            with self.env.cr.savepoint():
+                self.state = 'processing'
+                try:
+                    payload = self._fetch_lead()
+                except UserError:
+                    # _request marks an expired/denied token on the account
+                    # before raising. Preserve that status across the event
+                    # rollback; ordinary SQL errors must not be read here.
+                    account = self.page_id.account_id
+                    if account.state == 'error':
+                        graph_account_error = account.error_message or ''
+                    raise
+                self.fetched_payload = payload
+                lead, outcome, detail = self._resolve_crm_lead(payload)
+                self.write({
+                    'state': self.OUTCOME_STATE[outcome], 'match_result': outcome,
+                    'crm_lead_id': lead.id if lead else False,
+                    'processed_at': fields.Datetime.now(), 'error_message': detail or False,
+                })
+                level = 'warning' if outcome == 'ambiguous' else 'info'
+                self._log(level, outcome, detail or 'CRM lead %s' % lead.id,
+                          self._safe_audit_payload(payload))
+                if outcome == 'ambiguous':
+                    self._schedule_attention_activity(
+                        _('Meta lead event needs manual resolution (queue %s)') % self.id)
         except Exception as exc:
             account = self.page_id.account_id
-            message = account._sanitize_error(exc, [
-                self.page_id.page_access_token,
-                account.user_access_token, account.app_secret,
-            ])
+            if graph_account_error is not None:
+                account.write({'state': 'error', 'error_message': graph_account_error})
+                if graph_account_error.startswith('190/'):
+                    account.activity_schedule(
+                        'mail.mail_activity_data_todo',
+                        summary=_('Meta token requires re-authentication'),
+                        note=graph_account_error)
+            if isinstance(exc, DatabaseError):
+                # PostgreSQL DETAIL and query text can contain customer
+                # answers. Keep only the SQLSTATE in persistent diagnostics.
+                message = _('Database error while processing Meta lead (SQLSTATE %s).') % (
+                    exc.pgcode or 'unknown')
+            else:
+                message = account._sanitize_error(exc, [
+                    self.page_id.page_access_token,
+                    account.user_access_token, account.app_secret,
+                ])
             # Log the sanitized message only — never exc_info, whose
             # traceback text could carry tokens or customer data.
             _logger.error('Meta lead processing failed for queue %s: %s', self.id, message)
