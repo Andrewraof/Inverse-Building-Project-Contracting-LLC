@@ -68,7 +68,9 @@ class TestMetaReports(TransactionCase):
         view = self.env.ref('crm_meta_lead_ads.view_meta_conversation_pivot')
         arch = view.arch_db
         self.assertIn('name="linked_lead_count" type="measure"', arch)
-        self.assertNotIn('name="first_response_seconds" type="measure"', arch)
+        self.assertIn('name="first_response_seconds" type="measure" invisible="1"', arch)
+        graph = self.env.ref('crm_meta_lead_ads.view_meta_conversation_graph')
+        self.assertIn('name="first_response_seconds" type="measure" invisible="1"', graph.arch_db)
         response_view = self.env.ref('crm_meta_lead_ads.view_meta_first_response_pivot')
         self.assertIn('name="first_response_seconds" type="measure"', response_view.arch_db)
 
