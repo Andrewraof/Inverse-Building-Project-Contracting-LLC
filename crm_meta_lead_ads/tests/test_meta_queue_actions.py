@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase
 
@@ -132,3 +134,21 @@ class TestMetaQueueActions(TransactionCase):
                           received_at='2026-09-20 10:00:00',
                           processed_at='2026-09-20 10:01:30')
         self.assertEqual(rec.processing_seconds, 90.0)
+
+    def test_sql_failure_rolls_back_before_retry_is_recorded(self):
+        rec = self._queue(state='pending', match_result=False,
+                          meta_lead_id='QA-SQL-ROLLBACK')
+
+        def fail_fetch():
+            self.env.cr.execute('SELECT 1 / 0')
+
+        with patch.object(type(rec), '_fetch_lead', side_effect=fail_fetch):
+            rec.process_one()
+
+        rec.invalidate_recordset()
+        self.assertEqual(rec.state, 'retry')
+        self.assertEqual(rec.attempts, 1)
+        self.assertIn('division by zero', rec.error_message)
+        self.assertNotIn('current transaction is aborted', rec.error_message)
+        self.assertTrue(self.Log.search([
+            ('queue_id', '=', rec.id), ('action', '=', 'retry_scheduled')]))
