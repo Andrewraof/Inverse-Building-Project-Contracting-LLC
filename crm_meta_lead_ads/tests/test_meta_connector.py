@@ -193,17 +193,14 @@ class TestMetaConnector(TransactionCase):
 
         # 1) Graph JSON error: the token must not reach the UserError,
         #    error_message, or the scheduled activity.
-        with patch(request_path, return_value=FakeResp()):
+        with patch(request_path, return_value=FakeResp()), \
+                patch.object(type(self.account), 'activity_schedule') as schedule:
             with self.assertRaises(UserError) as ctx:
                 self.account._request('GET', 'me', token=secret)
         self.assertNotIn(secret, str(ctx.exception))
         self.assertNotIn(secret, self.account.error_message or '')
-        activity = self.env['mail.activity'].sudo().search([
-            ('res_model', '=', 'meta.account'), ('res_id', '=', self.account.id)],
-            order='id desc', limit=1)
-        self.assertTrue(activity)
-        self.assertNotIn(secret, activity.note or '')
-        self.assertNotIn(secret, activity.summary or '')
+        schedule.assert_called_once()
+        self.assertNotIn(secret, str(schedule.call_args))
 
         # 2) Connection-style exception carrying the token in its URL.
         with patch(request_path, side_effect=Exception('url: /me?access_token=%s' % secret)):

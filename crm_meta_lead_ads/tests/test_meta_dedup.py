@@ -2,6 +2,8 @@ import importlib.util
 import json
 import os
 import threading
+import sys
+import traceback
 from unittest.mock import patch
 
 from odoo import SUPERUSER_ID, api
@@ -527,7 +529,10 @@ class TestMetaDedupConcurrency(TransactionCase):
                 thread_a.start()
                 self.assertTrue(
                     gates['a_processed'].wait(timeout=self.EVENT_TIMEOUT),
-                    'transaction A never processed its event: %r' % results)
+                    'transaction A never processed its event: %r; stack: %s' % (
+                        results, ''.join(traceback.format_stack(
+                            sys._current_frames()[thread_a.ident]))
+                        if thread_a.ident in sys._current_frames() else 'unavailable'))
                 # --- THE OVERLAP ---
                 # A has created the lead and still holds the advisory
                 # lock inside its OPEN transaction. B starts only now;
