@@ -1,5 +1,10 @@
+import threading
+import uuid
+
+from odoo import SUPERUSER_ID, api
 from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase
+from odoo.modules.registry import Registry
 
 
 class TestMetaConversationLinking(TransactionCase):
@@ -125,3 +130,101 @@ class TestMetaConversationLinking(TransactionCase):
         wizard = self._wizard(conv, lead).with_user(user)
         wizard.action_link()
         self.assertEqual(conv.lead_id, lead)
+
+
+class TestMetaConversationConcurrentLink(TransactionCase):
+    def test_committed_competing_link_is_not_overwritten(self):
+        """A link waiting on a lead row must re-read the winner after the wait."""
+        class RollbackProbe(Exception):
+            pass
+
+        registry = Registry(self.env.cr.dbname)
+        suffix = uuid.uuid4().hex
+        with registry.cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            account = env['meta.account'].create({
+                'name': 'Concurrent Link', 'company_id': self.env.company.id,
+                'app_id': 'app-' + suffix, 'app_secret': 'test-secret',
+            })
+            page = env['meta.page'].create({
+                'name': 'Concurrent Link Page', 'company_id': self.env.company.id,
+                'account_id': account.id, 'meta_page_id': 'page-' + suffix,
+                'page_access_token': 'test-page-token',
+            })
+            conv_a, conv_b = env['meta.conversation'].create([
+                {'company_id': self.env.company.id, 'page_id': page.id,
+                 'psid': 'a-' + suffix},
+                {'company_id': self.env.company.id, 'page_id': page.id,
+                 'psid': 'b-' + suffix},
+            ])
+            lead = env['crm.lead'].create({
+                'name': 'Concurrent Lead', 'company_id': self.env.company.id,
+            })
+            ids = (account.id, page.id, conv_a.id, conv_b.id, lead.id)
+            cr.commit()
+
+        account_id, page_id, conv_a_id, conv_b_id, lead_id = ids
+        conv_a = self.env['meta.conversation'].browse(conv_a_id)
+        lead = self.env['crm.lead'].browse(lead_id)
+        self.assertFalse(lead.meta_conversation_id)  # prime the ORM cache
+        locked = threading.Event()
+        release = threading.Event()
+        worker_errors = []
+
+        def competing_transaction():
+            try:
+                with registry.cursor() as cr:
+                    cr.execute('SELECT id FROM crm_lead WHERE id = %s FOR UPDATE',
+                               (lead_id,))
+                    locked.set()
+                    if not release.wait(timeout=30):
+                        raise AssertionError('competing transaction was not released')
+                    cr.execute('UPDATE crm_lead SET meta_conversation_id = %s WHERE id = %s',
+                               (conv_b_id, lead_id))
+                    cr.execute('UPDATE meta_conversation SET lead_id = %s WHERE id = %s',
+                               (lead_id, conv_b_id))
+                    cr.commit()
+            except Exception as exc:
+                worker_errors.append(exc)
+                locked.set()
+
+        worker = threading.Thread(target=competing_transaction)
+        timer = None
+        try:
+            worker.start()
+            self.assertTrue(locked.wait(timeout=30))
+            self.assertFalse(worker_errors)
+            timer = threading.Timer(1, release.set)
+            timer.start()
+            rejected = False
+            try:
+                with self.env.cr.savepoint():
+                    try:
+                        conv_a._link_to_lead(lead)
+                    except UserError:
+                        rejected = True
+                    # Release any locks/writes even on the expected-red run.
+                    raise RollbackProbe()
+            except RollbackProbe:
+                pass
+            worker.join(timeout=30)
+            self.assertFalse(worker.is_alive())
+            self.assertFalse(worker_errors)
+            self.assertTrue(rejected, 'A competing committed link was overwritten')
+            lead.invalidate_recordset(['meta_conversation_id'])
+            self.assertEqual(lead.meta_conversation_id.id, conv_b_id)
+            conv_a.invalidate_recordset(['lead_id'])
+            self.assertFalse(conv_a.lead_id)
+        finally:
+            release.set()
+            if timer:
+                timer.cancel()
+            if worker.ident is not None:
+                worker.join(timeout=30)
+            with registry.cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                env['crm.lead'].browse(lead_id).unlink()
+                env['meta.conversation'].browse([conv_a_id, conv_b_id]).unlink()
+                env['meta.page'].browse(page_id).unlink()
+                env['meta.account'].browse(account_id).unlink()
+                cr.commit()

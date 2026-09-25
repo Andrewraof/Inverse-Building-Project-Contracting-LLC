@@ -53,6 +53,7 @@ class TestMetaReports(TransactionCase):
         self.assertIn('last_inbound_at', arch)
         self.assertIn('filter_state_pending', arch)
         self.assertIn('filter_awaiting_response', arch)
+        self.assertIn("('first_response_at', '=', False)", arch)
 
     # 3b. The conversation pivot measures lead conversion per assignee.
     def test_conversation_pivot_measures_lead_conversion(self):
