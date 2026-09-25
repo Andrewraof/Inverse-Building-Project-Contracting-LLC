@@ -168,3 +168,22 @@ class TestMetaQueueActions(TransactionCase):
         self.account.invalidate_recordset()
         self.assertEqual(self.account.state, 'error')
         self.assertEqual(rec.state, 'failed')
+
+    def test_database_error_does_not_persist_customer_value(self):
+        rec = self._queue(state='pending', match_result=False,
+                          meta_lead_id='QA-PII-ERROR')
+        private_value = 'private-person@example.test'
+
+        def fail_fetch():
+            self.env.cr.execute('SELECT %s::integer', (private_value,))
+
+        with patch.object(type(rec), '_fetch_lead', side_effect=fail_fetch):
+            rec.process_one()
+
+        rec.invalidate_recordset()
+        audit = self.Log.search([('queue_id', '=', rec.id),
+                                 ('action', '=', 'retry_scheduled')])
+        self.assertEqual(rec.state, 'retry')
+        self.assertIn('SQLSTATE 22P02', rec.error_message)
+        self.assertNotIn(private_value, rec.error_message)
+        self.assertNotIn(private_value, '\n'.join(audit.mapped('message')))
