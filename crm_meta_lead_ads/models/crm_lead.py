@@ -28,8 +28,12 @@ class CrmLead(models.Model):
     # Meta dedup matcher can do exact, indexable comparisons.
     meta_norm_email = fields.Char(index=True, copy=False, readonly=True)
     meta_norm_phone = fields.Char(index=True, copy=False, readonly=True)
-    meta_identity_ids = fields.One2many('meta.lead.identity', 'crm_lead_id', readonly=True)
-    meta_identity_count = fields.Integer(compute='_compute_meta_identity_count')
+    meta_identity_ids = fields.One2many(
+        'meta.lead.identity', 'crm_lead_id', readonly=True,
+        groups='crm_meta_lead_ads.group_meta_lead_user')
+    meta_identity_count = fields.Integer(
+        compute='_compute_meta_identity_count',
+        groups='crm_meta_lead_ads.group_meta_lead_user')
     meta_routing_rule_id = fields.Many2one('meta.routing.rule', copy=False, readonly=True,
                                            help='Routing rule that assigned this lead, if any.')
 
