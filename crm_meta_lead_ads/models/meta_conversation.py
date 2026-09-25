@@ -24,6 +24,10 @@ class MetaConversation(models.Model):
     sender_name = fields.Char(tracking=True)
     partner_id = fields.Many2one('res.partner', index=True)
     lead_id = fields.Many2one('crm.lead', copy=False, index=True)
+    linked_lead_count = fields.Integer(
+        string='Linked Leads', compute='_compute_linked_lead_count',
+        store=True, readonly=True, aggregator='sum',
+        help='One when this conversation is linked to a CRM lead; used in reports.')
     assigned_user_id = fields.Many2one('res.users', tracking=True)
     state = fields.Selection([
         ('new', 'New'), ('open', 'Open'), ('pending', 'Pending'), ('closed', 'Closed'),
@@ -35,7 +39,7 @@ class MetaConversation(models.Model):
     first_response_seconds = fields.Integer(readonly=True, copy=False,
                                             help='Seconds from the first inbound message to the first page reply.')
     first_response_at = fields.Datetime(readonly=True, copy=False, index=True,
-                                        help='When the page first replied; empty means no reply yet, even when first_response_seconds is 0 (immediate reply).')
+                                        help='Timestamp of the first successful page reply after the first inbound message.')
     meta_thread_id = fields.Char(readonly=True, copy=False, index=True,
                                  help='Meta conversation thread id, set by historical sync.')
     history_synced_at = fields.Datetime(readonly=True, copy=False)
@@ -52,6 +56,36 @@ class MetaConversation(models.Model):
     def _compute_display_name(self):
         for rec in self:
             rec.display_name = rec.sender_name or rec.psid or _('Meta Conversation')
+
+    @api.depends('lead_id')
+    def _compute_linked_lead_count(self):
+        for rec in self:
+            rec.linked_lead_count = 1 if rec.lead_id else 0
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        # Do not let direct ORM creates bypass the bidirectional link checks.
+        lead_ids = [vals.pop('lead_id', False) for vals in vals_list]
+        with self.env.cr.savepoint():
+            records = super().create(vals_list)
+            for rec, lead_id in zip(records, lead_ids):
+                if lead_id:
+                    rec._link_to_lead(self.env['crm.lead'].browse(lead_id))
+        return records
+
+    def write(self, vals):
+        if 'lead_id' not in vals:
+            return super().write(vals)
+        if len(self) != 1:
+            raise UserError(_('Link one Meta conversation at a time.'))
+        other_vals = {key: value for key, value in vals.items() if key != 'lead_id'}
+        lead_id = vals['lead_id'] or False
+        with self.env.cr.savepoint():
+            if lead_id:
+                self._link_to_lead(self.env['crm.lead'].browse(lead_id))
+            elif self.lead_id:
+                raise UserError(_('Use the linked CRM lead; clearing this link is not supported.'))
+            return super().write(other_vals) if other_vals else True
 
     @api.model
     def _get_or_create(self, page, psid, values=None):
@@ -226,10 +260,12 @@ class MetaConversation(models.Model):
         # Lock the conversation row and re-read: two concurrent creators
         # must not each produce a lead for the same conversation. Under
         # REPEATABLE READ a committed competitor surfaces as a
-        # serialization failure — reject it as a clean user error.
+        # serialization failure — reject it as a clean user error after
+        # rolling back the failed savepoint.
         try:
-            self.env.cr.execute(
-                'SELECT id FROM meta_conversation WHERE id = %s FOR UPDATE', (self.id,))
+            with self.env.cr.savepoint():
+                self.env.cr.execute(
+                    'SELECT id FROM meta_conversation WHERE id = %s FOR UPDATE', (self.id,))
         except SerializationFailure:
             raise UserError(_(
                 'This conversation was just linked by a concurrent process. '
@@ -239,22 +275,22 @@ class MetaConversation(models.Model):
             raise UserError(_('This conversation is already linked to a lead.'))
         source = self.env.ref('crm_meta_lead_ads.utm_source_meta_messenger', raise_if_not_found=False)
         partner = self.partner_id
-        lead = self.env['crm.lead'].create({
-            'name': _('Meta Messenger: %s') % (self.sender_name or self.psid),
-            'type': 'lead',
-            'company_id': self.company_id.id,
-            'user_id': self.assigned_user_id.id or self.env.user.id,
-            'partner_id': partner.id if partner else False,
-            'partner_name': (partner.name if partner else self.sender_name) or False,
-            'email_from': partner.email if partner and partner.email else False,
-            'phone': partner.phone if partner and partner.phone else False,
-            'source_id': source.id if source else False,
-            'meta_conversation_id': self.id,
-        })
-        self.lead_id = lead.id
-        lead.message_post(body=_(
-            'Created from Meta Inbox conversation (page: %(page)s, PSID: %(psid)s).',
-            page=self.page_id.name, psid=self.psid))
+        with self.env.cr.savepoint():
+            lead = self.env['crm.lead'].create({
+                'name': _('Meta Messenger: %s') % (self.sender_name or self.psid),
+                'type': 'lead',
+                'company_id': self.company_id.id,
+                'user_id': self.assigned_user_id.id or self.env.user.id,
+                'partner_id': partner.id if partner else False,
+                'partner_name': (partner.name if partner else self.sender_name) or False,
+                'email_from': partner.email if partner and partner.email else False,
+                'phone': partner.phone if partner and partner.phone else False,
+                'source_id': source.id if source else False,
+            })
+            self._link_to_lead(lead, announce=False)
+            lead.message_post(body=_(
+                'Created from Meta Inbox conversation (page: %(page)s, PSID: %(psid)s).',
+                page=self.page_id.name, psid=self.psid))
         return lead
 
     def action_link_lead(self):
@@ -271,7 +307,7 @@ class MetaConversation(models.Model):
             'context': {'default_conversation_id': self.id},
         }
 
-    def _link_to_lead(self, lead):
+    def _link_to_lead(self, lead, announce=True):
         """Link this conversation to an existing CRM lead, both ways.
 
         Guards: a conversation links to one lead only, a lead links to
@@ -288,30 +324,35 @@ class MetaConversation(models.Model):
         # competitor committed after our snapshot — that is a rejection,
         # not a crash.
         try:
-            self.env.cr.execute(
-                'SELECT id FROM meta_conversation WHERE id = %s FOR UPDATE', (self.id,))
-            self.env.cr.execute(
-                'SELECT id FROM crm_lead WHERE id = %s FOR UPDATE', (lead.id,))
+            with self.env.cr.savepoint():
+                self.env.cr.execute(
+                    'SELECT id FROM meta_conversation WHERE id = %s FOR UPDATE', (self.id,))
+                self.env.cr.execute(
+                    'SELECT id FROM crm_lead WHERE id = %s FOR UPDATE', (lead.id,))
+                if not self.env.cr.fetchone():
+                    raise UserError(_('The selected CRM lead no longer exists.'))
         except SerializationFailure:
             raise UserError(_(
                 'This lead was just linked to another conversation by a '
                 'concurrent process. Reload and review before linking.'))
         self.invalidate_recordset(['lead_id'])
-        lead.invalidate_recordset(['meta_conversation_id'])
+        lead.invalidate_recordset(['meta_conversation_id', 'company_id'])
         if self.lead_id:
             raise UserError(_('This conversation is already linked to a lead.'))
         if lead.company_id and lead.company_id != self.company_id:
             raise UserError(_('The selected lead belongs to another company.'))
         if lead.meta_conversation_id and lead.meta_conversation_id != self:
             raise UserError(_('The selected lead is already linked to another Meta conversation.'))
-        self.lead_id = lead.id
-        if lead.meta_conversation_id != self:
-            lead.meta_conversation_id = self.id
-        lead.message_post(body=_(
-            'Linked to Meta Inbox conversation (page: %(page)s, PSID: %(psid)s).',
-            page=self.page_id.name, psid=self.psid))
-        self.message_post(body=_(
-            'Linked to CRM lead %s by %s.') % (lead.id, self.env.user.name))
+        with self.env.cr.savepoint():
+            super(MetaConversation, self).write({'lead_id': lead.id})
+            if lead.meta_conversation_id != self:
+                lead._meta_set_conversation_link(self)
+            if announce:
+                lead.message_post(body=_(
+                    'Linked to Meta Inbox conversation (page: %(page)s, PSID: %(psid)s).',
+                    page=self.page_id.name, psid=self.psid))
+                self.message_post(body=_(
+                    'Linked to CRM lead %s by %s.') % (lead.id, self.env.user.name))
         return lead
 
     def action_open_lead(self):

@@ -71,7 +71,7 @@
                 <field name="state" type="col"/>
                 <field name="unread_count" type="measure"/>
                 <field name="first_response_seconds" type="measure"/>
-                <field name="lead_id" type="measure"/>
+                <field name="linked_lead_count" type="measure"/>
             </pivot>
         </field>
     </record>
