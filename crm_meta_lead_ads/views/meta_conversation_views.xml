@@ -29,6 +29,7 @@
                     <button name="action_close" type="object" string="Close" invisible="state == 'closed'"/>
                     <button name="action_reopen" type="object" string="Reopen" invisible="state != 'closed'"/>
                     <button name="action_create_lead" type="object" string="Create Lead" invisible="lead_id != False"/>
+                    <button name="action_link_lead" type="object" string="Link Existing Lead" invisible="lead_id != False"/>
                     <button name="action_open_lead" type="object" string="Open Lead" invisible="lead_id == False"/>
                     <button name="action_convert_to_opportunity" type="object" string="Convert to Opportunity" invisible="lead_id != False"/>
                     <field name="state" widget="statusbar" statusbar_visible="new,open,pending,closed"/>
@@ -103,6 +104,7 @@
                 <filter name="filter_state_closed" string="Closed" domain="[('state', '=', 'closed')]"/>
                 <filter name="filter_mine" string="Assigned to Me" domain="[('assigned_user_id', '=', uid)]"/>
                 <filter name="filter_overdue" string="Needs Response &gt; 24h" domain="[('state', '=', 'open'), ('last_inbound_at', '&lt;', (datetime.datetime.now() - datetime.timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S'))]"/>
+                <filter name="filter_awaiting_response" string="Awaiting First Response" domain="[('last_inbound_at', '!=', False), ('first_response_seconds', '=', 0)]"/>
                 <separator/>
                 <filter name="filter_last_inbound" string="Last Inbound" date="last_inbound_at"/>
                 <separator/>

@@ -52,6 +52,22 @@ class TestMetaReports(TransactionCase):
         self.assertIn('filter_overdue', arch)
         self.assertIn('last_inbound_at', arch)
         self.assertIn('filter_state_pending', arch)
+        self.assertIn('filter_awaiting_response', arch)
+        self.assertIn("('first_response_at', '=', False)", arch)
+
+    # 3b. The conversation pivot measures lead conversion per assignee.
+    def test_conversation_pivot_measures_lead_conversion(self):
+        view = self.env.ref('crm_meta_lead_ads.view_meta_conversation_pivot')
+        arch = view.arch_db
+        self.assertIn('lead_id', arch)
+        self.assertIn('first_response_seconds', arch)
+
+    # 3c. The leads pivot breaks down by sales team and salesperson.
+    def test_leads_pivot_has_team_and_user_rows(self):
+        view = self.env.ref('crm_meta_lead_ads.view_crm_lead_meta_pivot')
+        arch = view.arch_db
+        self.assertIn('team_id', arch)
+        self.assertIn('user_id', arch)
 
     # 4. CPL unavailability is documented on the Diagnostics tab.
     def test_cpl_permission_notice_documented(self):
