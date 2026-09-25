@@ -73,6 +73,7 @@
                                 <group>
                                     <field name="last_inbound_at" readonly="1"/>
                                     <field name="first_response_seconds" readonly="1"/>
+                                    <field name="first_response_at" readonly="1"/>
                                     <field name="history_synced_at" readonly="1"/>
                                     <field name="company_id" groups="base.group_multi_company" readonly="1"/>
                                     <field name="active" invisible="1"/>
@@ -104,7 +105,7 @@
                 <filter name="filter_state_closed" string="Closed" domain="[('state', '=', 'closed')]"/>
                 <filter name="filter_mine" string="Assigned to Me" domain="[('assigned_user_id', '=', uid)]"/>
                 <filter name="filter_overdue" string="Needs Response &gt; 24h" domain="[('state', '=', 'open'), ('last_inbound_at', '&lt;', (datetime.datetime.now() - datetime.timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S'))]"/>
-                <filter name="filter_awaiting_response" string="Awaiting First Response" domain="[('last_inbound_at', '!=', False), ('first_response_seconds', '=', 0)]"/>
+                <filter name="filter_awaiting_response" string="Awaiting First Response" domain="[('last_inbound_at', '!=', False), ('first_response_at', '=', False)]"/>
                 <separator/>
                 <filter name="filter_last_inbound" string="Last Inbound" date="last_inbound_at"/>
                 <separator/>

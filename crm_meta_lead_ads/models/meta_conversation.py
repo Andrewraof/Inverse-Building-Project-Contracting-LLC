@@ -33,6 +33,8 @@ class MetaConversation(models.Model):
                                       help='Last customer message; drives the 24h window and overdue filters.')
     first_response_seconds = fields.Integer(readonly=True, copy=False,
                                             help='Seconds from the first inbound message to the first page reply.')
+    first_response_at = fields.Datetime(readonly=True, copy=False, index=True,
+                                        help='When the page first replied; empty means no reply yet, even when first_response_seconds is 0 (immediate reply).')
     meta_thread_id = fields.Char(readonly=True, copy=False, index=True,
                                  help='Meta conversation thread id, set by historical sync.')
     history_synced_at = fields.Datetime(readonly=True, copy=False)
@@ -220,6 +222,11 @@ class MetaConversation(models.Model):
         linked to the conversation its contact details seed the lead;
         the sender display name alone is never used as a match key."""
         self.ensure_one()
+        # Lock the conversation row and re-read: two concurrent creators
+        # must not each produce a lead for the same conversation.
+        self.env.cr.execute(
+            'SELECT id FROM meta_conversation WHERE id = %s FOR UPDATE', (self.id,))
+        self.invalidate_recordset(['lead_id'])
         if self.lead_id:
             raise UserError(_('This conversation is already linked to a lead.'))
         source = self.env.ref('crm_meta_lead_ads.utm_source_meta_messenger', raise_if_not_found=False)
@@ -266,6 +273,15 @@ class MetaConversation(models.Model):
         self.ensure_one()
         if not lead:
             raise UserError(_('Select a CRM lead to link first.'))
+        # Serialize competing linkers in a fixed order (conversation then
+        # lead), then re-read after the wait: a False cached before the
+        # lock must never overwrite a committed competing link.
+        self.env.cr.execute(
+            'SELECT id FROM meta_conversation WHERE id = %s FOR UPDATE', (self.id,))
+        self.env.cr.execute(
+            'SELECT id FROM crm_lead WHERE id = %s FOR UPDATE', (lead.id,))
+        self.invalidate_recordset(['lead_id'])
+        lead.invalidate_recordset(['meta_conversation_id'])
         if self.lead_id:
             raise UserError(_('This conversation is already linked to a lead.'))
         if lead.company_id and lead.company_id != self.company_id:
@@ -416,6 +432,7 @@ class MetaConversation(models.Model):
                 'last_message_preview': (latest.message_text or '')[:100],
                 'last_inbound_at': (inbound[-1].sent_at or inbound[-1].received_at) if inbound else False,
                 'first_response_seconds': response_seconds,
+                'first_response_at': (first_reply.sent_at or first_reply.received_at) if first_reply else False,
             }
             changed = {field: value for field, value in vals.items()
                        if conversation[field] != value}

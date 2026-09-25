@@ -29,4 +29,5 @@
     <record id="rule_meta_sync_run_company" model="ir.rule"><field name="name">Meta sync run company</field><field name="model_id" ref="model_meta_sync_run"/><field name="domain_force">[('company_id','in',company_ids)]</field></record>
     <record id="rule_meta_sync_run_line_company" model="ir.rule"><field name="name">Meta sync run line company</field><field name="model_id" ref="model_meta_sync_run_line"/><field name="domain_force">[('company_id','in',company_ids)]</field></record>
     <record id="rule_meta_routing_rule_company" model="ir.rule"><field name="name">Meta routing rule company</field><field name="model_id" ref="model_meta_routing_rule"/><field name="domain_force">[('company_id','in',company_ids)]</field></record>
+    <record id="rule_meta_ad_insight_company" model="ir.rule"><field name="name">Meta ad insight company</field><field name="model_id" ref="model_meta_ad_insight"/><field name="domain_force">[('company_id','in',company_ids)]</field></record>
 </odoo>
