@@ -3,12 +3,12 @@
         <field name="name">crm.lead.form.meta</field><field name="model">crm.lead</field><field name="inherit_id" ref="crm.crm_lead_view_form"/>
         <field name="arch" type="xml">
             <xpath expr="//div[@name='button_box']" position="inside">
-                <button name="action_open_meta_identities" type="object" class="oe_stat_button" icon="fa-link" invisible="not meta_identity_count">
+                <button name="action_open_meta_identities" type="object" class="oe_stat_button" icon="fa-link" groups="crm_meta_lead_ads.group_meta_lead_user" invisible="not meta_identity_count">
                     <field name="meta_identity_count" string="Meta Lead IDs" widget="statinfo"/>
                 </button>
-                <button name="action_open_meta_conversation" type="object" class="oe_stat_button" icon="fa-comments" string="Conversation" invisible="not meta_conversation_id"/>
+                <button name="action_open_meta_conversation" type="object" class="oe_stat_button" icon="fa-comments" string="Conversation" groups="crm_meta_lead_ads.group_meta_lead_user" invisible="not meta_conversation_id"/>
             </xpath>
-            <xpath expr="//notebook" position="inside"><page string="Meta Lead Ads" invisible="not meta_lead_id and not meta_conversation_id"><group><field name="meta_lead_id"/><field name="meta_platform"/><field name="meta_page_id"/><field name="meta_form_id"/><field name="meta_campaign_id"/><field name="meta_campaign_name"/><field name="meta_adset_id"/><field name="meta_adset_name"/><field name="meta_ad_id"/><field name="meta_ad_name"/><field name="meta_adgroup_id" string="Ad Set ID (Legacy)"/><field name="meta_is_organic"/><field name="meta_conversation_id"/><field name="meta_routing_rule_id"/></group><field name="meta_raw_payload" groups="base.group_system"/></page></xpath>
+            <xpath expr="//notebook" position="inside"><page string="Meta Lead Ads" groups="crm_meta_lead_ads.group_meta_lead_user" invisible="not meta_lead_id and not meta_conversation_id"><group><field name="meta_lead_id"/><field name="meta_platform"/><field name="meta_page_id"/><field name="meta_form_id"/><field name="meta_campaign_id"/><field name="meta_campaign_name"/><field name="meta_adset_id"/><field name="meta_adset_name"/><field name="meta_ad_id"/><field name="meta_ad_name"/><field name="meta_adgroup_id" string="Ad Set ID (Legacy)"/><field name="meta_is_organic"/><field name="meta_conversation_id"/><field name="meta_routing_rule_id"/></group><field name="meta_raw_payload" groups="base.group_system"/></page></xpath>
         </field>
     </record>
 </odoo>
