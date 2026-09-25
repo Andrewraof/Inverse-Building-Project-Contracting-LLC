@@ -1,11 +1,10 @@
 # CURRENT_TASK — Batch 2: Complete Meta CRM Operations Suite
 
-الحالة: Batch 2 على فرع مراجعة مستقل؛ اجتازت اختبارات Odoo 19 على قاعدة
-مؤقتة في GitHub Actions، ولم تُنشر بعد على الإنتاج. لا توجد بيئة Odoo
-محلية، ولم تُشغَّل الاختبارات على قاعدة `inverse_elite` الإنتاجية.
-تشغيل CI الناجح: `36103294312` (175 اختباراً، واحد مؤجل لأن Odoo
-يحتفظ بقفل Registry أثناء اختبارات التثبيت؛ اختبار PostgreSQL مستقل
-يؤكد تسلسل القفل بمعاملتين).
+الحالة: Batch 2 مع تحسينات ربط المحادثة بالـCRM على فرع مراجعة مستقل؛
+اجتازت اختبارات Odoo 19 على قاعدة مؤقتة في GitHub Actions، ولم تُنشر بعد
+على الإنتاج. لا توجد بيئة Odoo محلية، ولم تُشغَّل الاختبارات على قاعدة
+`inverse_elite` الإنتاجية. آخر تشغيل ناجح: `36176476010`، **219 اختبارًا
+بلا فشل أو خطأ**، بما فيها اختبار تزامن الربط بمعاملتين.
 
 ## إصلاحات مراجعة 2026-09-25
 
@@ -24,7 +23,7 @@
 - الفحوصات الثابتة واختبارات الريبو لا تغني عن تشغيل اختبارات Odoo
   والتحقق من Views ضد RNG على بيئة Odoo 19 قبل النشر.
 
-الإصدار: `19.0.4.0.0`. التصميم التفصيلي: `docs/BATCH2_DESIGN.md`.
+الإصدار: `19.0.4.1.0`. التصميم التفصيلي: `docs/BATCH2_DESIGN.md`.
 
 ## ما بُني على الموجود (لم يُكسر)
 
@@ -55,20 +54,29 @@
    كتم إشعارات النجاح عبر `meta_queue_notify`.
 6. **Inbox**: مزامنة رسائل تاريخية عبر Graph API (upsert بالـMeta
    message id، attachments metadata فقط بلا تحميل — SSRF آمن)،
-   `last_inbound_at` + `first_response_seconds`، حالة `pending` بعد
+   `last_inbound_at` + `first_response_seconds` + `first_response_at`، حالة `pending` بعد
    الرد الناجح، فلتر Needs Response > 24h، زر Convert to Opportunity،
    routing hook للمحادثات.
 7. **كشف الحقول غير المربوطة** على `meta.form` مع بانر تحذير.
 8. **تقارير Community فقط**: pivot/graph للـQueue وليدز Meta
    (page/campaign/organic)، المحادثات (unread + متوسط أول رد لكل
-   موظف)، وFunnel (lead → opportunity → won/lost).
+   موظف) وعدد المحادثات المرتبطة بليد، وFunnel (lead → opportunity → won/lost).
 9. **إعدادات**: `meta_sync_notify` و`meta_queue_notify`.
+10. **ربط المحادثة بليد قائم**: Wizard يتحقق من صلاحيات CRM والشركة
+    وعدم وجود ربط آخر؛ الإنشاء والتعديل المباشر من جانبي المحادثة والليد
+    يمران بنفس الفحوصات، وحقل الليد في الفورم للقراءة فقط.
 
 ## Migration 19.0.4.0.0
 
 Backfill لـ`last_inbound_at` و`first_response_seconds` على المحادثات
 القائمة — batched وidempotent وأعداد فقط، بلا حذف أو إعادة كتابة
 بيانات المستخدم. Rollback = revert للـcommit؛ الأعمدة الجديدة nullable.
+
+## Migration 19.0.4.1.0
+
+Backfill مستقل لـ`first_response_at` حتى لقواعد رُقّيت سابقًا إلى
+`19.0.4.0.0`، وضبط مقياس `linked_lead_count` للسجلات القديمة. يعمل
+على دفعات وبشكل idempotent ولا يسجل إلا أعدادًا.
 
 ## الملفات
 
@@ -86,15 +94,17 @@ Backfill لـ`last_inbound_at` و`first_response_seconds` على المحادث�
 - `py_compile` ✅ (كل models/tests/controllers/migration)
 - XML parse ✅ (19 ملفًا)
 - `git diff --check` ✅
-- `deploy/validate_addon.py` ✅ (19.0.4.0.0)
+- `deploy/validate_addon.py` ✅ (19.0.4.1.0)
 - اختبارات الريبو 14/14 ✅
 - فحص أسرار على الـdiff: صفر ✅
-- اختبارات Odoo الفعلية: **لم تُشغَّل** (لا بيئة محلية).
+- اختبارات Odoo الفعلية: **219/219 ناجحة** على قاعدة CI مؤقتة، تشغيل
+  `36176476010`، بما فيها اختبار إعادة تشغيل ترحيل `19.0.4.1.0`.
+  لم تُشغَّل على الإنتاج.
 
 ## خطوات التحديث على الإنتاج (بعد الموافقة)
 
 1. commit + push إلى `main` → CI/CD ينشر ويشغّل `-u crm_meta_lead_ads`
-   (migration 19.0.4.0.0 يعمل تلقائيًا).
+   (migration 19.0.4.0.0 و19.0.4.1.0 يعملان بحسب الإصدار السابق).
 2. تحقق read-only: الخدمة active، سطر migration بالأعداد، لا أخطاء
    Registry/XML/ACL/constraint، لا Tokens/PII في السجل.
 3. اختبار حي مؤجل من Batch 1B على النموذج `893155173379183` (صفحة

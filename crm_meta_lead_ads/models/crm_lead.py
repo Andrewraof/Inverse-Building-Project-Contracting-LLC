@@ -1,4 +1,5 @@
-from odoo import api, fields, models
+from odoo import api, fields, models, _
+from odoo.exceptions import UserError
 
 from .meta_dedup import normalize_email, normalize_phone
 
@@ -75,6 +76,7 @@ class CrmLead(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        conversation_ids = [vals.pop('meta_conversation_id', False) for vals in vals_list]
         companies = {}
         for vals in vals_list:
             if 'meta_norm_email' not in vals and vals.get('email_from'):
@@ -86,9 +88,26 @@ class CrmLead(models.Model):
                 country = companies[company_id].country_id
                 uae = bool(country and country.code == 'AE')
                 vals['meta_norm_phone'] = normalize_phone(vals['phone'], uae_context=uae) or False
-        return super().create(vals_list)
+        with self.env.cr.savepoint():
+            leads = super().create(vals_list)
+            for lead, conversation_id in zip(leads, conversation_ids):
+                if conversation_id:
+                    self.env['meta.conversation'].browse(conversation_id)._link_to_lead(lead)
+        return leads
 
     def write(self, vals):
+        if 'meta_conversation_id' in vals:
+            if len(self) != 1:
+                raise UserError(_('Link one CRM lead at a time.'))
+            conversation_id = vals['meta_conversation_id'] or False
+            other_vals = {key: value for key, value in vals.items()
+                          if key != 'meta_conversation_id'}
+            with self.env.cr.savepoint():
+                if conversation_id:
+                    self.env['meta.conversation'].browse(conversation_id)._link_to_lead(self)
+                elif self.meta_conversation_id:
+                    raise UserError(_('Clearing a linked Meta conversation is not supported.'))
+                return self.write(other_vals) if other_vals else True
         result = super().write(vals)
         if self.env.context.get('meta_norm_sync'):
             return result
@@ -96,3 +115,8 @@ class CrmLead(models.Model):
             for rec in self:
                 rec.with_context(meta_norm_sync=True).write(rec._meta_norm_vals())
         return result
+
+    def _meta_set_conversation_link(self, conversation):
+        """Set the inverse only after meta.conversation validated both sides."""
+        self.ensure_one()
+        return super(CrmLead, self).write({'meta_conversation_id': conversation.id})
