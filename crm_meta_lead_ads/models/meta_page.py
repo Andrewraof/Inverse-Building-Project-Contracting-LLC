@@ -126,12 +126,14 @@ class MetaPage(models.Model):
                 _logger.error('Meta page sync failed for page %s: %s', label, safe_msg)
         return synced, failed, results
 
-    def _fetch_sender_name(self, psid):
+    def _fetch_sender_name(self, psid, raise_errors=False):
         self.ensure_one()
         try:
             data = self.account_id._request('GET', str(psid), token=self.page_access_token,
                                             params={'fields': 'first_name,last_name,name'})
         except Exception as exc:
+            if raise_errors:
+                raise
             safe = self.account_id._sanitize_error(exc, self._subscription_secrets())
             masked = ('%s…' % str(psid)[:4]) if psid else '?'
             _logger.warning('Could not fetch Meta sender profile %s: %s', masked, safe)
