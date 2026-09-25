@@ -173,19 +173,30 @@ class TestMetaMessagesSync(TransactionCase):
         self.assertEqual(msg_calls[1][1], 'c1')
         self.assertEqual(run.messages_created, 2)
 
-    # 5. Explicitly denied pages_messaging skips the steps with warnings.
-    def test_missing_messaging_permission(self):
+    # 5. A declined user-token scope does not preempt Page-token history.
+    def test_declined_user_messaging_permission_still_attempts_page_token(self):
         def handler(path, params):
             if path == 'me/permissions':
                 return {'data': [{'name': 'pages_messaging', 'status': 'declined'}]}
             if path == 'me':
                 return {'id': 'user-1'}
+            if path == '900/conversations':
+                return self._threads()
+            if path == 't-1/messages':
+                return self._messages([{'id': 'm-declined-user',
+                                        'message': 'From Page token',
+                                        'from': {'id': 'PS-100'},
+                                        'created_time': '2026-09-20T10:00:00+0000'}])
             raise AssertionError('unexpected path %s' % path)
         with self._patch_request(handler):
             run = self._run_messages()
         self.assertEqual(run.state, 'completed_warnings')
         self.assertIn('pages_messaging', run.missing_permissions or '')
-        self.assertEqual(run.messages_created, 0)
+        self.assertEqual(run.messages_created, 1)
+        self.assertEqual(run.line_ids.filtered(lambda l: l.step == 'conversations').state,
+                         'done')
+        self.assertEqual(run.line_ids.filtered(lambda l: l.step == 'messages').state,
+                         'done')
 
     # 6. Multi-company: history synced for company A never lands in company B.
     def test_company_isolation(self):
