@@ -285,6 +285,8 @@ class TestMetaMessagesSync(TransactionCase):
                                         'message': 'From Page token',
                                         'from': {'id': 'PS-100'},
                                         'created_time': '2026-09-20T10:00:00+0000'}])
+            if path == 'PS-100':
+                return {}  # A missing profile name is not a messages-step failure.
             raise AssertionError('unexpected path %s' % path)
         with self._patch_request(handler):
             run = self._run_messages()
