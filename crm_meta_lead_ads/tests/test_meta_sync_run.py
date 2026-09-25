@@ -86,6 +86,12 @@ class TestMetaSyncRun(TransactionCase):
         self.assertEqual(set(run.line_ids.mapped('step')),
                          {'connection', 'pages', 'forms', 'leads', 'conversations', 'messages'})
 
+    def test_run_with_failed_or_ambiguous_items_finishes_with_warnings(self):
+        for counter in ('leads_failed', 'leads_ambiguous', 'messages_failed'):
+            run = self._new_run(run_type='leads', **{counter: 1})
+            run._finalize()
+            self.assertEqual(run.state, 'completed_warnings', counter)
+
     # Permission diagnostics on the user token must not preempt a successful
     # operation using a Page token.
     def test_declined_user_permission_does_not_skip_page_token_leads(self):
