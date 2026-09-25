@@ -2,6 +2,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 from odoo.tests.common import TransactionCase
+from odoo.addons.crm_meta_lead_ads.models.meta_account import MetaPermissionError
 
 
 class TestMetaMessagesSync(TransactionCase):
@@ -152,7 +153,7 @@ class TestMetaMessagesSync(TransactionCase):
 
         def denied(_page, _psid, raise_errors=False):
             self.account.write({'state': 'error', 'error_message': '200: profile denied'})
-            raise RuntimeError('profile denied')
+            raise MetaPermissionError('profile denied')
 
         with self._patch_request(self._perms_handler(extra)), \
                 patch.object(type(self.page), '_fetch_sender_name', autospec=True,
@@ -165,6 +166,52 @@ class TestMetaMessagesSync(TransactionCase):
         self.assertFalse(self.account.error_message)
         self.assertEqual(self.Conversation.search_count([
             ('page_id', '=', self.page.id), ('psid', 'in', ('PS-100', 'PS-200'))]), 2)
+
+    def test_transient_profile_failure_does_not_skip_next_customer(self):
+        def extra(path, params):
+            if path == '900/conversations':
+                return {'data': [
+                    {'id': 't-1', 'participants': {'data': [
+                        {'id': '900'}, {'id': 'PS-100'}]}},
+                    {'id': 't-2', 'participants': {'data': [
+                        {'id': '900'}, {'id': 'PS-200'}]}},
+                ]}
+            if path in ('t-1/messages', 't-2/messages'):
+                return self._messages([])
+            if path == 'PS-100':
+                raise RuntimeError('temporary timeout')
+            if path == 'PS-200':
+                return {'name': 'Second Customer'}
+            raise AssertionError('unexpected path %s' % path)
+
+        with self._patch_request(self._perms_handler(extra, profile_paths=True)):
+            run = self._run_messages()
+        self.assertEqual(run.state, 'completed_warnings')
+        conv = self.Conversation.search([('page_id', '=', self.page.id),
+                                         ('psid', '=', 'PS-200')])
+        self.assertEqual(conv.sender_name, 'Second Customer')
+
+    def test_unknown_message_sender_never_inherits_customer_name(self):
+        def extra(path, params):
+            if path == '900/conversations':
+                data = self._threads()
+                data['data'][0]['participants']['data'][1]['name'] = 'Customer Four'
+                return data
+            if path == 't-1/messages':
+                return self._messages([
+                    {'id': 'm-unknown', 'message': 'unknown sender'},
+                    {'id': 'm-customer', 'message': 'known sender',
+                     'from': {'id': 'PS-100'}},
+                ])
+            raise AssertionError('unexpected path %s' % path)
+
+        with self._patch_request(self._perms_handler(extra)):
+            self._run_messages()
+        self.assertFalse(self.Message.search([
+            ('meta_message_id', '=', 'm-unknown')]).sender_name)
+        self.assertEqual(self.Message.search([
+            ('meta_message_id', '=', 'm-customer')]).sender_name,
+            'Customer Four')
 
     # 1. Historical sync creates conversation + messages with direction.
     def test_history_sync_creates_conversation_and_messages(self):

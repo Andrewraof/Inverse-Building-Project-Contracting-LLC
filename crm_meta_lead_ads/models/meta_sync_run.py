@@ -474,12 +474,6 @@ class MetaSyncRun(models.Model):
                     conv._refresh_history_metrics()
                     if self._fill_missing_customer_profile(conv, ctx, line):
                         profile_lookups += 1
-                    if conv.sender_name:
-                        self.env['meta.message'].sudo().search([
-                            ('conversation_id', '=', conv.id),
-                            ('direction', '=', 'inbound'),
-                            ('sender_name', '=', False),
-                        ]).write({'sender_name': conv.sender_name})
                     conv.history_synced_at = fields.Datetime.now()
                     break
                 if next_after in seen or next_after == after:
@@ -512,11 +506,22 @@ class MetaSyncRun(models.Model):
         try:
             with self.env.cr.savepoint():
                 name = page._fetch_sender_name(conv.psid, raise_errors=True)
-        except Exception:
+        except MetaPermissionError:
             blocked.append(page.id)
-            self._warn(line, 'Customer profile lookup failed or was denied for a page; '
+            self._warn(line, 'Customer profile lookup was denied for a page; '
                        'conversation history remains available without names')
             return True
+        except Exception:
+            failures = ctx.setdefault('profile_failures', {})
+            page_key = str(page.id)
+            failures[page_key] = failures.get(page_key, 0) + 1
+            if failures[page_key] == 1:
+                self._warn(line, 'Customer profile lookup failed for a page; '
+                           'the sync will try other conversations without exposing profile details')
+            if failures[page_key] >= 3:
+                blocked.append(page.id)
+            return True
+        ctx.setdefault('profile_failures', {}).pop(str(page.id), None)
         if isinstance(name, str) and name.strip():
             conv.sender_name = name.strip()
         return True
@@ -537,8 +542,12 @@ class MetaSyncRun(models.Model):
                 and sender['name'].strip()):
             conv.sender_name = sender['name'].strip()
         Message = self.env['meta.message'].sudo()
-        if Message.search([('meta_message_id', '=', mid),
-                           ('company_id', '=', conv.company_id.id)], limit=1):
+        existing = Message.search([('meta_message_id', '=', mid),
+                                   ('company_id', '=', conv.company_id.id)], limit=1)
+        if existing:
+            if (sender_id == conv.psid and conv.sender_name
+                    and not existing.sender_name):
+                existing.sender_name = conv.sender_name
             return 'duplicate'
         attachments = []
         for attachment in (item.get('attachments') or {}).get('data') or []:
@@ -555,7 +564,8 @@ class MetaSyncRun(models.Model):
                 Message.create({
                     'company_id': conv.company_id.id, 'page_id': page.id,
                     'conversation_id': conv.id, 'sender_psid': sender_id or conv.psid,
-                    'sender_name': sender.get('name') or False,
+                    'sender_name': sender.get('name') or (
+                        conv.sender_name if sender_id == conv.psid else False),
                     'message_text': text, 'meta_message_id': mid,
                     'sent_at': _parse_graph_dt(item.get('created_time')) or fields.Datetime.now(),
                     'direction': direction,
