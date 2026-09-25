@@ -402,7 +402,7 @@ class TestMetaInbox(TransactionCase):
         self.assertEqual(action.search_view_id, search_view)
         for view_type in ('list', 'form', 'search'):
             arch = self.Conversation.get_view(view_type=view_type)['arch']
-            self.assertIn('meta.conversation', arch)
+            self.assertIn('<%s' % view_type, arch)
 
     def test_form_actions_assign_mark_read_close_reopen(self):
         conversation = self._reply_ready_conversation('form-actions')

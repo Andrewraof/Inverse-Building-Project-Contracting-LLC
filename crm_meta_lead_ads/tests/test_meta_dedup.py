@@ -527,7 +527,7 @@ class TestMetaDedupConcurrency(TransactionCase):
                 thread_a.start()
                 self.assertTrue(
                     gates['a_processed'].wait(timeout=self.EVENT_TIMEOUT),
-                    'transaction A never processed its event')
+                    'transaction A never processed its event: %r' % results)
                 # --- THE OVERLAP ---
                 # A has created the lead and still holds the advisory
                 # lock inside its OPEN transaction. B starts only now;
@@ -574,7 +574,7 @@ class TestMetaDedupConcurrency(TransactionCase):
         finally:
             gates['commit_a'].set()  # never leave worker A parked
             for thread in (thread_a, thread_b):
-                if thread is not None:
+                if thread is not None and thread.ident is not None:
                     thread.join(timeout=self.EVENT_TIMEOUT)
             with registry.cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})

@@ -16,6 +16,10 @@ class TestMetaPolling(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        # The module's pre-existing forms are unrelated to these isolated
+        # polling scenarios. Keep the cron from fetching them as well.
+        cls.env['meta.form'].search([('polling_enabled', '=', True)]).write({
+            'polling_enabled': False})
         cls.account = cls.env['meta.account'].create({
             'name': 'Polling Meta', 'company_id': cls.env.company.id,
             'app_id': 'app', 'app_secret': 'secret',

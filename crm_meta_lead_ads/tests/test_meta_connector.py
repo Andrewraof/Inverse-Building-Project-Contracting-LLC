@@ -198,7 +198,7 @@ class TestMetaConnector(TransactionCase):
                 self.account._request('GET', 'me', token=secret)
         self.assertNotIn(secret, str(ctx.exception))
         self.assertNotIn(secret, self.account.error_message or '')
-        activity = self.env['mail.activity'].search([
+        activity = self.env['mail.activity'].sudo().search([
             ('res_model', '=', 'meta.account'), ('res_id', '=', self.account.id)],
             order='id desc', limit=1)
         self.assertTrue(activity)
