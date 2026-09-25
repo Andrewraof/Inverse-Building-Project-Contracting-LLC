@@ -4,8 +4,8 @@ import os
 import threading
 from unittest.mock import patch
 
-import odoo
 from odoo import SUPERUSER_ID, api
+from odoo.modules.registry import Registry
 from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase
 
@@ -476,7 +476,7 @@ class TestMetaDedupConcurrency(TransactionCase):
         advisory lock) until the main thread releases it. Any error is
         captured and re-raised by the test thread — no silent failure."""
         try:
-            registry = odoo.registry(dbname)
+            registry = Registry(dbname)
             with registry.cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
                 queue = env['meta.lead.queue'].browse(queue_id)
@@ -496,7 +496,7 @@ class TestMetaDedupConcurrency(TransactionCase):
 
     def test_concurrent_processing_overlapping_transactions(self):
         dbname = self.env.cr.dbname
-        registry = odoo.registry(dbname)
+        registry = Registry(dbname)
         gates = {name: threading.Event() for name in (
             'a_processed', 'a_committed', 'a_done', 'commit_a',
             'b_processed', 'b_committed', 'b_done')}

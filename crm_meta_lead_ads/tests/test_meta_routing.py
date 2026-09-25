@@ -42,6 +42,7 @@ class TestMetaRouting(TransactionCase):
         self.Rule.create({
             'name': 'Page rule', 'page_id': self.page.id,
             'team_id': self.team.id, 'user_id': self.agent.id,
+            'override_manual': True,
         })
         lead = self._lead()
         rule = self.Rule.apply_for_lead(lead, queue=self._queue())

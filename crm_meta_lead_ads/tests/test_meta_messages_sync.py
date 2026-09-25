@@ -33,7 +33,10 @@ class TestMetaMessagesSync(TransactionCase):
     def _perms_handler(self, extra):
         def handler(path, params):
             if path == 'me/permissions':
-                return {'data': [{'name': 'pages_messaging', 'status': 'granted'}]}
+                return {'data': [
+                    {'name': permission, 'status': 'granted'} for permission in (
+                        'leads_retrieval', 'pages_show_list', 'pages_read_engagement',
+                        'pages_manage_metadata', 'pages_messaging')]}
             if path == 'me':
                 return {'id': 'user-1'}
             return extra(path, params)

@@ -28,6 +28,7 @@ AUDIT_PAYLOAD_KEYS = (
 class MetaLeadQueue(models.Model):
     _name = 'meta.lead.queue'
     _description = 'Meta Lead Ingestion Queue'
+    _inherit = ['mail.thread', 'mail.activity.mixin']
     _order = 'priority desc, id'
 
     company_id = fields.Many2one('res.company', required=True, index=True)

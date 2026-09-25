@@ -228,6 +228,7 @@ class TestMetaPolling(TransactionCase):
 
     # 9. filtering is sent as proper JSON with the 5-minute overlap margin.
     def test_filtering_param_json_with_overlap_margin(self):
+        previous_sync = self.form.last_sync_date
         handler = lambda path, params: self._page([])
         patcher, state = self._patch_request(handler)
         with patcher:
@@ -235,7 +236,7 @@ class TestMetaPolling(TransactionCase):
         sent = state['calls'][0]['params'].get('filtering')
         self.assertTrue(sent)
         parsed = json.loads(sent)
-        expected = int(self.form.last_sync_date.timestamp()) - 300
+        expected = int(previous_sync.timestamp()) - 300
         self.assertEqual(parsed, [{
             'field': 'time_created', 'operator': 'GREATER_THAN', 'value': expected,
         }])

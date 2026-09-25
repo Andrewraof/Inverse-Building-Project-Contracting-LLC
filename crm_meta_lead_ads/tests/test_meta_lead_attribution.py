@@ -145,7 +145,7 @@ class TestMetaLeadAttribution(TransactionCase):
             self.assertNotIn('pagetok-SECRET-1', log.message or '')
 
     def test_lead_form_view_shows_attribution_fields(self):
-        arch, _view = self.Lead.get_view(view_type='form')
+        arch = self.Lead.get_view(view_type='form')['arch']
         for field_name in ('meta_campaign_id', 'meta_campaign_name', 'meta_adset_id',
                            'meta_adset_name', 'meta_ad_name', 'meta_adgroup_id'):
             self.assertIn(field_name, arch)

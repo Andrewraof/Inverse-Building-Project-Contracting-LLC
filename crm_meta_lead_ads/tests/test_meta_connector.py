@@ -43,6 +43,7 @@ class TestMetaConnector(TransactionCase):
 
     def _db_token(self, page_id):
         """Read the token straight from the cursor, bypassing the ORM cache."""
+        self.env['meta.page'].flush_model(['page_access_token'])
         self.env.cr.execute("SELECT page_access_token FROM meta_page WHERE id = %s", (page_id,))
         row = self.env.cr.fetchone()
         return row[0] if row else None

@@ -123,7 +123,9 @@ class TestMetaSyncRun(TransactionCase):
 
         def handler(path, params):
             if path == 'me/permissions':
-                return {'data': [{'name': 'leads_retrieval', 'status': 'granted'}]}
+                return {'data': [{'name': p, 'status': 'granted'} for p in (
+                    'leads_retrieval', 'pages_show_list', 'pages_read_engagement',
+                    'pages_manage_metadata', 'pages_messaging')]}
             if path == 'me':
                 return {'id': 'user-1'}
             if path == 'FR1/leads':
@@ -131,6 +133,9 @@ class TestMetaSyncRun(TransactionCase):
                 if calls['leads'] == 1:
                     return UserError('Meta API error: temporary')
                 return {'data': [{'id': 'RL1'}]}
+            if path == 'RL1':
+                return {'id': 'RL1', 'field_data': [
+                    {'name': 'email', 'values': ['resume@example.com']}]}
             raise AssertionError('unexpected path %s' % path)
         run = self._new_run(run_type='leads')
         run.action_start()
@@ -151,7 +156,9 @@ class TestMetaSyncRun(TransactionCase):
     def test_leads_step_counts_outcomes(self):
         def handler(path, params):
             if path == 'me/permissions':
-                return {'data': [{'name': 'leads_retrieval', 'status': 'granted'}]}
+                return {'data': [{'name': p, 'status': 'granted'} for p in (
+                    'leads_retrieval', 'pages_show_list', 'pages_read_engagement',
+                    'pages_manage_metadata', 'pages_messaging')]}
             if path == 'me':
                 return {'id': 'user-1'}
             if path == 'FR1/leads':
@@ -178,7 +185,9 @@ class TestMetaSyncRun(TransactionCase):
 
         def handler(path, params):
             if path == 'me/permissions':
-                return {'data': [{'name': 'leads_retrieval', 'status': 'granted'}]}
+                return {'data': [{'name': p, 'status': 'granted'} for p in (
+                    'leads_retrieval', 'pages_show_list', 'pages_read_engagement',
+                    'pages_manage_metadata', 'pages_messaging')]}
             if path == 'me':
                 return {'id': 'user-1'}
             if path == 'FR1/leads':
