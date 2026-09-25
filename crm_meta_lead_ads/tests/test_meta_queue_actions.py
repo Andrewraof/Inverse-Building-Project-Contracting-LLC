@@ -148,7 +148,7 @@ class TestMetaQueueActions(TransactionCase):
         rec.invalidate_recordset()
         self.assertEqual(rec.state, 'retry')
         self.assertEqual(rec.attempts, 1)
-        self.assertIn('division by zero', rec.error_message)
+        self.assertIn('SQLSTATE 22012', rec.error_message)
         self.assertNotIn('current transaction is aborted', rec.error_message)
         self.assertTrue(self.Log.search([
             ('queue_id', '=', rec.id), ('action', '=', 'retry_scheduled')]))

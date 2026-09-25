@@ -4,7 +4,7 @@ import logging
 import random
 import time
 from datetime import timedelta
-from psycopg2 import IntegrityError
+from psycopg2 import Error as DatabaseError, IntegrityError
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 from .meta_dedup import normalize_email, normalize_phone
@@ -393,10 +393,16 @@ class MetaLeadQueue(models.Model):
                         'mail.mail_activity_data_todo',
                         summary=_('Meta token requires re-authentication'),
                         note=graph_account_error)
-            message = account._sanitize_error(exc, [
-                self.page_id.page_access_token,
-                account.user_access_token, account.app_secret,
-            ])
+            if isinstance(exc, DatabaseError):
+                # PostgreSQL DETAIL and query text can contain customer
+                # answers. Keep only the SQLSTATE in persistent diagnostics.
+                message = _('Database error while processing Meta lead (SQLSTATE %s).') % (
+                    exc.pgcode or 'unknown')
+            else:
+                message = account._sanitize_error(exc, [
+                    self.page_id.page_access_token,
+                    account.user_access_token, account.app_secret,
+                ])
             # Log the sanitized message only — never exc_info, whose
             # traceback text could carry tokens or customer data.
             _logger.error('Meta lead processing failed for queue %s: %s', self.id, message)
