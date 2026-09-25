@@ -1,0 +1,19 @@
+<odoo>
+    <record id="view_meta_conversation_link_lead_wizard_form" model="ir.ui.view">
+        <field name="name">meta.conversation.link.lead.wizard.form</field>
+        <field name="model">meta.conversation.link.lead.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Link Existing Lead">
+                <group>
+                    <field name="conversation_id"/>
+                    <field name="company_id" invisible="1"/>
+                    <field name="lead_id"/>
+                </group>
+                <footer>
+                    <button name="action_link" type="object" string="Link" class="btn-primary"/>
+                    <button string="Cancel" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

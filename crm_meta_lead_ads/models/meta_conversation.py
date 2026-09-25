@@ -216,17 +216,23 @@ class MetaConversation(models.Model):
         """Create one CRM lead from this conversation and link both sides.
 
         A conversation can only ever create a single lead; once linked,
-        the form offers ``action_open_lead`` instead."""
+        the form offers ``action_open_lead`` instead. When a partner is
+        linked to the conversation its contact details seed the lead;
+        the sender display name alone is never used as a match key."""
         self.ensure_one()
         if self.lead_id:
             raise UserError(_('This conversation is already linked to a lead.'))
         source = self.env.ref('crm_meta_lead_ads.utm_source_meta_messenger', raise_if_not_found=False)
+        partner = self.partner_id
         lead = self.env['crm.lead'].create({
             'name': _('Meta Messenger: %s') % (self.sender_name or self.psid),
             'type': 'lead',
             'company_id': self.company_id.id,
             'user_id': self.assigned_user_id.id or self.env.user.id,
-            'partner_name': self.sender_name or False,
+            'partner_id': partner.id if partner else False,
+            'partner_name': (partner.name if partner else self.sender_name) or False,
+            'email_from': partner.email if partner and partner.email else False,
+            'phone': partner.phone if partner and partner.phone else False,
             'source_id': source.id if source else False,
             'meta_conversation_id': self.id,
         })
@@ -234,6 +240,46 @@ class MetaConversation(models.Model):
         lead.message_post(body=_(
             'Created from Meta Inbox conversation (page: %(page)s, PSID: %(psid)s).',
             page=self.page_id.name, psid=self.psid))
+        return lead
+
+    def action_link_lead(self):
+        """Open the wizard that links this conversation to an existing lead."""
+        self.ensure_one()
+        if self.lead_id:
+            raise UserError(_('This conversation is already linked to a lead.'))
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Link Existing Lead'),
+            'res_model': 'meta.conversation.link.lead.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {'default_conversation_id': self.id},
+        }
+
+    def _link_to_lead(self, lead):
+        """Link this conversation to an existing CRM lead, both ways.
+
+        Guards: a conversation links to one lead only, a lead links to
+        one conversation only, and cross-company links are refused.
+        Nothing about the lead's salesperson, stage or contact data is
+        modified."""
+        self.ensure_one()
+        if not lead:
+            raise UserError(_('Select a CRM lead to link first.'))
+        if self.lead_id:
+            raise UserError(_('This conversation is already linked to a lead.'))
+        if lead.company_id and lead.company_id != self.company_id:
+            raise UserError(_('The selected lead belongs to another company.'))
+        if lead.meta_conversation_id and lead.meta_conversation_id != self:
+            raise UserError(_('The selected lead is already linked to another Meta conversation.'))
+        self.lead_id = lead.id
+        if lead.meta_conversation_id != self:
+            lead.meta_conversation_id = self.id
+        lead.message_post(body=_(
+            'Linked to Meta Inbox conversation (page: %(page)s, PSID: %(psid)s).',
+            page=self.page_id.name, psid=self.psid))
+        self.message_post(body=_(
+            'Linked to CRM lead %s by %s.') % (lead.id, self.env.user.name))
         return lead
 
     def action_open_lead(self):

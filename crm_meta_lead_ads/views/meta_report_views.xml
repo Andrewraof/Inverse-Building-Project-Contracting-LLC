@@ -38,6 +38,8 @@
             <pivot string="Meta Leads Report" disable_linking="True">
                 <field name="meta_page_id" type="row"/>
                 <field name="meta_campaign_name" type="row"/>
+                <field name="team_id" type="row"/>
+                <field name="user_id" type="row"/>
                 <field name="meta_is_organic" type="col"/>
             </pivot>
         </field>
@@ -69,6 +71,7 @@
                 <field name="state" type="col"/>
                 <field name="unread_count" type="measure"/>
                 <field name="first_response_seconds" type="measure"/>
+                <field name="lead_id" type="measure"/>
             </pivot>
         </field>
     </record>

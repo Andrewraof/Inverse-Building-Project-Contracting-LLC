@@ -23,6 +23,7 @@
         'views/meta_routing_rule_views.xml',
         'views/meta_lead_identity_views.xml',
         'views/meta_lead_backfill_wizard_views.xml',
+        'views/meta_conversation_link_lead_wizard_views.xml',
         'views/meta_report_views.xml',
         'views/crm_lead_views.xml',
         'views/res_config_settings_views.xml',
