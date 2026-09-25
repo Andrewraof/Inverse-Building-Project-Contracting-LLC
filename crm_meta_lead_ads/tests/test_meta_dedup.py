@@ -2,8 +2,6 @@ import importlib.util
 import json
 import os
 import threading
-import sys
-import traceback
 from unittest.mock import patch
 
 from odoo import SUPERUSER_ID, api
@@ -472,13 +470,12 @@ class TestMetaDedupConcurrency(TransactionCase):
             'form': form.id, 'q_a': q_a.id, 'q_b': q_b.id,
         }
 
-    def _worker(self, dbname, queue_id, key, gates, results):
+    def _worker(self, registry, queue_id, key, gates, results):
         """Process one queue event in its own thread + transaction.
         Worker A additionally parks its OPEN transaction (holding the
         advisory lock) until the main thread releases it. Any error is
         captured and re-raised by the test thread — no silent failure."""
         try:
-            registry = Registry(dbname)
             with registry.cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
                 queue = env['meta.lead.queue'].browse(queue_id)
@@ -522,17 +519,14 @@ class TestMetaDedupConcurrency(TransactionCase):
                               side_effect=fake_request):
                 thread_a = threading.Thread(
                     target=self._worker, name='dedup-tx-A',
-                    args=(dbname, ids['q_a'], 'a', gates, results))
+                    args=(registry, ids['q_a'], 'a', gates, results))
                 thread_b = threading.Thread(
                     target=self._worker, name='dedup-tx-B',
-                    args=(dbname, ids['q_b'], 'b', gates, results))
+                    args=(registry, ids['q_b'], 'b', gates, results))
                 thread_a.start()
                 self.assertTrue(
                     gates['a_processed'].wait(timeout=self.EVENT_TIMEOUT),
-                    'transaction A never processed its event: %r; stack: %s' % (
-                        results, ''.join(traceback.format_stack(
-                            sys._current_frames()[thread_a.ident]))
-                        if thread_a.ident in sys._current_frames() else 'unavailable'))
+                    'transaction A never processed its event: %r' % results)
                 # --- THE OVERLAP ---
                 # A has created the lead and still holds the advisory
                 # lock inside its OPEN transaction. B starts only now;
