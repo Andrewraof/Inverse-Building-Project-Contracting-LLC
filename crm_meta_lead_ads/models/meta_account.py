@@ -13,6 +13,10 @@ REQUIRED_PERMISSIONS = (
 )
 
 
+class MetaPermissionError(UserError):
+    """Graph explicitly denied an operation for lack of permission."""
+
+
 class MetaAccount(models.Model):
     _name = 'meta.account'
     _description = 'Meta Lead Ads Account'
@@ -90,6 +94,12 @@ class MetaAccount(models.Model):
         if response.status_code >= 400 or (isinstance(data, dict) and data.get('error')):
             err = data.get('error', {}) if isinstance(data, dict) else {}
             self._handle_graph_error(err, token=token)
+            if err.get('code') in (10, 200):
+                # Do not persist the remote error text: it may contain a
+                # token or customer data. The step and code are sufficient.
+                raise MetaPermissionError(
+                    _('Meta denied permission for this operation (code %s).')
+                    % err['code'])
             raise UserError(_('Meta API error: %s') % self._sanitize_error(err.get('message') or response.text, token))
         return data
 
