@@ -353,6 +353,7 @@ class MetaLeadQueue(models.Model):
         self.ensure_one()
         if self.state not in ('pending', 'retry', 'failed', 'ambiguous'):
             return
+        graph_account_error = None
         try:
             # A database error aborts PostgreSQL's transaction. Roll back
             # this event before the retry handler reads/writes ORM records;
@@ -360,7 +361,16 @@ class MetaLeadQueue(models.Model):
             # and fails the entire sync run.
             with self.env.cr.savepoint():
                 self.state = 'processing'
-                payload = self._fetch_lead()
+                try:
+                    payload = self._fetch_lead()
+                except UserError:
+                    # _request marks an expired/denied token on the account
+                    # before raising. Preserve that status across the event
+                    # rollback; ordinary SQL errors must not be read here.
+                    account = self.page_id.account_id
+                    if account.state == 'error':
+                        graph_account_error = account.error_message or ''
+                    raise
                 self.fetched_payload = payload
                 lead, outcome, detail = self._resolve_crm_lead(payload)
                 self.write({
@@ -376,6 +386,13 @@ class MetaLeadQueue(models.Model):
                         _('Meta lead event needs manual resolution (queue %s)') % self.id)
         except Exception as exc:
             account = self.page_id.account_id
+            if graph_account_error is not None:
+                account.write({'state': 'error', 'error_message': graph_account_error})
+                if graph_account_error.startswith('190/'):
+                    account.activity_schedule(
+                        'mail.mail_activity_data_todo',
+                        summary=_('Meta token requires re-authentication'),
+                        note=graph_account_error)
             message = account._sanitize_error(exc, [
                 self.page_id.page_access_token,
                 account.user_access_token, account.app_secret,
