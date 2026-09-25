@@ -186,9 +186,11 @@
 - كشف الحقول غير المربوطة على `meta.form` (`unmapped_field_names`).
 - تقارير Community: pivot/graph للـQueue وليدز Meta والمحادثات
   والـFunnel، وsmart buttons على crm.lead (identity + المحادثة).
-- اختبارات جديدة (40 اختبارًا) في 5 ملفات: sync_run, routing,
-  messages_sync, queue_actions, reports. لم تُشغَّل اختبارات Odoo
-  الفعلية بعد (لا بيئة محلية).
+- اختبارات جديدة في ملفات sync_run, routing, messages_sync,
+  queue_actions, reports. اختبارات Odoo 19 الفعلية اجتازت على قاعدة
+  مؤقتة في GitHub Actions (تشغيل `36103294312`: 175 اختبارًا مع اختبار
+  تدفق تزامن كامل مؤجل؛ اختبار قفل PostgreSQL بمعاملتين نجح).
+  لم تُشغَّل اختبارات على قاعدة الإنتاج.
 
 ## بيئة الإنتاج
 
