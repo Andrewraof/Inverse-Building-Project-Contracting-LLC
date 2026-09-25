@@ -29,6 +29,13 @@ class MetaConversation(models.Model):
     ], default='new', required=True, tracking=True, index=True)
     last_message_at = fields.Datetime(index=True)
     last_message_preview = fields.Char()
+    last_inbound_at = fields.Datetime(readonly=True, index=True,
+                                      help='Last customer message; drives the 24h window and overdue filters.')
+    first_response_seconds = fields.Integer(readonly=True, copy=False,
+                                            help='Seconds from the first inbound message to the first page reply.')
+    meta_thread_id = fields.Char(readonly=True, copy=False, index=True,
+                                 help='Meta conversation thread id, set by historical sync.')
+    history_synced_at = fields.Datetime(readonly=True, copy=False)
     unread_count = fields.Integer(default=0, readonly=True)
     meta_message_ids = fields.One2many('meta.message', 'conversation_id')
     reply_draft = fields.Text(string='Reply')
@@ -96,16 +103,26 @@ class MetaConversation(models.Model):
         if not message:
             return message
 
+        # Serialize concurrent webhook deliveries for the same conversation
+        # so the unread increment below is never lost between transactions.
+        if conversation.id:
+            self.env.cr.execute(
+                'SELECT pg_advisory_xact_lock(%s)',
+                (int(conversation.id) + 2100000000,))
+        conversation.invalidate_recordset(['unread_count'])
         vals = {
             'active': True,
             'state': 'open',
             'last_message_at': message.sent_at or message.received_at,
+            'last_inbound_at': message.sent_at or message.received_at,
             'last_message_preview': (message.message_text or '')[:100],
             'unread_count': conversation.unread_count + 1,
         }
         if sender_name:
             vals['sender_name'] = sender_name
         conversation.write(vals)
+        if not conversation.assigned_user_id:
+            self.env['meta.routing.rule'].sudo().apply_for_conversation(conversation)
         conversation._schedule_inbox_activity()
         return message
 
@@ -292,8 +309,10 @@ class MetaConversation(models.Model):
             return {'message': False, 'error': reason}
         message = self._record_outbound_message(
             text, send_state='sent', meta_message_id=message_id)
+        # Pending = waiting on the customer; the next inbound flips the
+        # conversation back to open.
         self.write({
-            'state': 'open',
+            'state': 'pending',
             'last_message_at': fields.Datetime.now(),
             'last_message_preview': text[:100],
             'unread_count': 0,
@@ -303,7 +322,7 @@ class MetaConversation(models.Model):
 
     def _record_outbound_message(self, text, send_state='sent', meta_message_id=None, failure_reason=None):
         self.ensure_one()
-        return self.env['meta.message'].sudo().create({
+        message = self.env['meta.message'].sudo().create({
             'company_id': self.company_id.id,
             'page_id': self.page_id.id,
             'conversation_id': self.id,
@@ -316,6 +335,64 @@ class MetaConversation(models.Model):
             'failure_reason': failure_reason,
             'sent_at': fields.Datetime.now(),
         })
+        if send_state == 'sent':
+            self._refresh_history_metrics()
+        return message
+
+    def _refresh_history_metrics(self):
+        """Derive Inbox timestamps and first response from stored messages.
+
+        Historical imports and live replies use the same definition: the
+        first successful page reply after the first customer message.
+        Recalculation never marks historical messages unread.
+        """
+        Message = self.env['meta.message'].sudo()
+        for conversation in self:
+            messages = Message.search([('conversation_id', '=', conversation.id)])
+            ordered = sorted(
+                (m for m in messages if m.direction == 'inbound' or m.send_state == 'sent'),
+                key=lambda m: (m.sent_at or m.received_at, m.id),
+            )
+            if not ordered:
+                continue
+            latest = ordered[-1]
+            inbound = [m for m in ordered if m.direction == 'inbound']
+            first_inbound = inbound[0] if inbound else False
+            first_at = (first_inbound.sent_at or first_inbound.received_at) if first_inbound else False
+            first_reply = next((m for m in ordered
+                                if first_at and m.direction == 'outbound'
+                                and m.send_state == 'sent'
+                                and (m.sent_at or m.received_at) >= first_at), False)
+            response_seconds = int(((first_reply.sent_at or first_reply.received_at) - first_at).total_seconds()) \
+                if first_reply else 0
+            vals = {
+                'last_message_at': latest.sent_at or latest.received_at,
+                'last_message_preview': (latest.message_text or '')[:100],
+                'last_inbound_at': (inbound[-1].sent_at or inbound[-1].received_at) if inbound else False,
+                'first_response_seconds': response_seconds,
+            }
+            changed = {field: value for field, value in vals.items()
+                       if conversation[field] != value}
+            if changed:
+                conversation.write(changed)
+
+    def action_convert_to_opportunity(self):
+        """Convert (or create-then-convert) the linked CRM lead to an
+        opportunity. Never creates a second lead for the conversation."""
+        self.ensure_one()
+        lead = self.lead_id or self.action_create_lead()
+        if lead.type != 'opportunity':
+            lead.write({'type': 'opportunity'})
+            lead.message_post(
+                body=_('Converted to opportunity from Meta Inbox conversation %s.') % self.id,
+                message_type='comment', subtype_xmlid='mail.mt_note')
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': 'crm.lead',
+            'res_id': lead.id,
+            'view_mode': 'form',
+            'target': 'current',
+        }
 
     @api.model
     def _link_legacy_messages(self):

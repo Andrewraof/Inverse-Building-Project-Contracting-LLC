@@ -4,7 +4,11 @@
         <field name="name">meta.form.form</field><field name="model">meta.form</field>
         <field name="arch" type="xml"><form string="Meta Lead Form">
             <header><button name="action_generate_default_mappings" type="object" string="Generate / Refresh Mappings" class="btn-primary"/></header>
-            <sheet><group><group><field name="name"/><field name="meta_form_id"/><field name="page_id"/><field name="company_id" groups="base.group_multi_company"/></group><group><field name="status" readonly="1"/><field name="sales_team_id"/><field name="user_id"/><field name="lead_type"/><field name="polling_enabled"/><field name="last_sync_date"/></group></group>
+            <sheet>
+                <div class="alert alert-warning" role="alert" invisible="not has_unmapped_fields">
+                    Unmapped Meta question keys (<field name="unmapped_field_names" readonly="1" class="d-inline"/>) are kept in the protected raw payload but not copied into CRM fields — add mappings below to use them.
+                </div>
+                <group><group><field name="name"/><field name="meta_form_id"/><field name="page_id"/><field name="company_id" groups="base.group_multi_company"/></group><group><field name="status" readonly="1"/><field name="sales_team_id"/><field name="user_id"/><field name="lead_type"/><field name="polling_enabled"/><field name="last_sync_date"/></group></group>
                 <notebook><page string="Field Mapping"><field name="mapping_ids"><list editable="bottom"><field name="sequence" widget="handle"/><field name="meta_field_name"/><field name="odoo_field_name"/><field name="join_separator"/><field name="active"/></list></field></page><page string="Meta Questions"><field name="questions_json" readonly="1"/></page></notebook>
             </sheet></form></field>
     </record>

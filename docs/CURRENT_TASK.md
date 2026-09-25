@@ -1,93 +1,108 @@
-# CURRENT_TASK — Batch 1B: Conservative Dedup (تطبيع + كشف تكرار محافظ)
+# CURRENT_TASK — Batch 2: Complete Meta CRM Operations Suite
 
-الحالة: منفّذة محلياً بالكامل — بانتظار مراجعة المستخدم ثم النشر.
+الحالة: Batch 2 مصحّحة محلياً بعد مراجعة Codex؛ بانتظار اختبار Odoo 19
+على قاعدة اختبار منفصلة قبل اعتماد النشر. لا commit ولا push ولا deploy.
 اختبارات Odoo الفعلية لم تُشغَّل (لا توجد بيئة Odoo محلية، ويُمنع
 تشغيل `--test-enable` على قاعدة `inverse_elite` الإنتاجية).
 
-## الهدف
+## إصلاحات مراجعة 2026-09-25
 
-منع إنشاء Leads مكررة لنفس العميل عبر البريد/الهاتف بصورة محافظة:
-لا دمج ولا حذف تلقائي، لا فقدان لأي Meta Lead ID، ولا استبدال بيانات
-موجودة.
+- إضافة استيراد `api` المفقود في `meta_form.py`، وهو خطأ تحميل Registry
+  لا يكشفه `py_compile`.
+- إزالة `decoration-*` من جذر قائمة Sync Runs لتبسيطها. مخطط Odoo 19
+  الرسمي يقبل هذه الخصائص، لذا لم تكن وحدها سبب فشل مؤكد.
+- إبقاء Sync Run في حالة running حتى تنتهي كل سجلات Queue التابعة له؛
+  المعالجة على دفعات 20، مع إعادة احتساب نتائج التشغيل من الحالات النهائية
+  حتى لا تتكرر العدادات عند الاستئناف أو معالجة الـcron العام.
+- إعادة احتساب آخر رسالة وآخر رسالة واردة وأول رد من الرسائل الفعلية
+  بعد السحب التاريخي وفي ترحيل النسخة والرد الحي. أول رد هو أول outbound
+  ناجح بعد أول inbound؛ الردود الفاشلة لا تغيّر معاينة المحادثة.
+- منع Routing Rule من الإشارة إلى صفحة أو نموذج أو فريق أو مستخدم خارج
+  شركتها. أُضيفت اختبارات رجوع لهذه الحالات ولأكثر من 20 Lead.
+- الفحوصات الثابتة واختبارات الريبو لا تغني عن تشغيل اختبارات Odoo
+  والتحقق من Views ضد RNG على بيئة Odoo 19 قبل النشر.
 
-## ما تم (v19.0.3.2.0)
+الإصدار: `19.0.4.0.0`. التصميم التفصيلي: `docs/BATCH2_DESIGN.md`.
 
-1. **تطبيع** `models/meta_dedup.py`:
-   - البريد: trim + lowercase + تحقق بنيوي محافظ؛ الفارغ/غير الصالح
-     ليس مفتاح مطابقة. الأصل يُحفظ كما وصل.
-   - الهاتف: إزالة مسافات/أقواس/شرطات/نقاط، `00`→`+`، الصيغ الإماراتية
-     (`+971`, `00971`, `971` بـ12 رقمًا) → `+971...`، والمحلي `0...`
-     → `+971` فقط عند دولة شركة AE مؤكدة؛ لا تخمين للأرقام الغامضة
-     (تُقارن كأرقام منقّاة فقط).
-2. **عمودا مطابقة** `meta_norm_email` / `meta_norm_phone` على
-   `crm.lead` (مفهرسان، readonly) يُصانان عبر create/write.
-3. **المطابقة** داخل الشركة فقط: meta_lead_id → بريد → هاتف؛ تعارض
-   القناتين أو تعدد المرشحين = ambiguous؛ الاسم وحده لا يطابق؛
-   المؤرشف لا يُطابَق ولا يُنشَّط.
-4. **عند المطابقة**: ملء الفارغ فقط (اتصال + إسناد 1A + source)،
-   دون مس user/team/stage/won/lost/active؛ ملاحظة Chatter آمنة.
-5. **`meta.lead.identity`**: صف مستقل لكل Meta Lead ID
-   (UNIQUE(meta_lead_id, company_id)) مع access + record rule.
-6. **النتائج**: `match_result` بالقيم الست + حالة `ambiguous` جديدة
-   (خارج الـcron، فلتر خاص، Process Now يدوي بعد المراجعة)، وسبب
-   التعارض بمعرفات فقط بلا بيانات اتصال.
-7. **تأمين الأخطاء**: logger بلا exc_info وبرسالة منقّاة بكل الأسرار
-   (page/user token + app secret)؛ نفس التنقية لـerror_message
-   وmeta.lead.log.
-8. **الترحيل** `19.0.3.2.0` idempotent على دفعات 500: تطبيع ليدز
-   Meta فقط + backfill للـidentity (match_type=backfill)، أعداد فقط.
+## ما بُني على الموجود (لم يُكسر)
 
-## إصلاحات جولة المراجعة (2026-09-24)
+كل سلوك Batch 1A/1A.1/1B/1B.1 وMeta Inbox قائم كما هو: منع التكرار
+المحافظ، التطبيع، مزامنة النماذج الآمنة للمؤرشف، Recovery Polling،
+الـAttribution، عزل الشركات، وتنقية الأسرار.
 
-1. **Migration تنتهي دائمًا**: `_backfill_norm_fields` أصبحت
-   id-pagination ثابتة (`id > last_id`) تمر على كل Meta Lead مرة واحدة
-   وتكتب القيم المتغيرة فقط — بريد/هاتف غير صالح (تطبيعه False) لم يعد
-   يبقي السجل في domain الحلقة إلى الأبد.
-2. **حماية سباق حقيقية**: `pg_advisory_xact_lock` بمفاتيح SHA-256 ثابتة
-   (company + channel + normalized value، ليست Python hash) مرتبة
-   تصاعديًا ضد الـdeadlock؛ يُعاد البحث بعد القفل قبل الإنشاء. اختبار
-   التتابع أُعيدت تسميته صراحةً، وأُضيف اختبار تزامن حقيقي في
-   `TestMetaDedupConcurrency`: fixture عبر cursor مستقل (بلا commit
-   على cursor الاختبار)، خيطان بمعاملتين متداخلتين فعليًا و
-   `threading.Event` بـtimeouts — A يمسك القفل داخل معاملة مفتوحة
-   بينما B يبدأ ويُثبت انتظاره، ثم يُحرَّر A فيطابق B الليد نفسه.
-3. **لا PII في سجل التدقيق**: `meta.lead.log.payload_json` أصبح يحمل
-   المعرفات والبيانات التقنية فقط (AUDIT_PAYLOAD_KEYS)؛ الـpayload
-   الكامل يبقى في الحقول المحمية (fetched_payload / meta_raw_payload).
-4. **عزل الشركات**: بحث `meta_lead_id` في `_resolve_crm_lead` أصبح
-   مقيدًا بالشركة؛ اصطدام القيد العالمي بسجل شركة أخرى = ambiguous
-   للمراجعة بلا ربط؛ `_ensure_identity` يتحقق أن identity المنافسة
-   تشير لنفس Lead والشركة وإلا يعيد رفع الخطأ (لا ابتلاع).
+## المزايا الجديدة
+
+1. **`meta.sync.run` + `meta.sync.run.line`**: زر Sync All Meta Data
+   يشغّل مهمة خلفية قابلة للاستئناف (work_state JSON + cursors)، خطوات
+   connection/pages/forms/leads/conversations/messages، حالات
+   draft/running/completed/completed_warnings/failed/cancelled، منع
+   مهمتين نشطتين لنفس الحساب، cron tick بحد زمني 45 ثانية، تقرير أعداد
+   فقط بلا Tokens/PII. الخطوة ذات الصلاحية المفقودة تُتخطى بتحذير ولا
+   تُسقط المهمة.
+2. **Diagnostics** على حساب Meta: الصلاحيات الممنوحة/المفقودة، آخر فحص،
+   آخر خطأ منقّى، وتوثيق أن CPL يتطلب `ads_read`.
+3. **`meta.routing.rule`**: شروط (page/form/campaign/adset/ad/platform/
+   city/service/keyword) ونتيجة (team/user/priority/tags/lead_type/
+   activity)، أول قاعدة بالترتيب تفوز، `override_manual=False`
+   افتراضيًا فلا يُستبدل التعيين اليدوي، Preview read-only، قاعدة شركة.
+4. **Wizard سحب تاريخي** `meta.lead.backfill.wizard`: نطاق تاريخي وحدود
+   أمان، ينشئ run من نوع leads.
+5. **Queue Actions**: Retry Selected / Retry All Failed / Reset to
+   Pending (Manager فقط) / Link Selected Lead (ربط ambiguous بسجل
+   موجود مع identity من نوع manual)، `processing_seconds` محسوبة،
+   كتم إشعارات النجاح عبر `meta_queue_notify`.
+6. **Inbox**: مزامنة رسائل تاريخية عبر Graph API (upsert بالـMeta
+   message id، attachments metadata فقط بلا تحميل — SSRF آمن)،
+   `last_inbound_at` + `first_response_seconds`، حالة `pending` بعد
+   الرد الناجح، فلتر Needs Response > 24h، زر Convert to Opportunity،
+   routing hook للمحادثات.
+7. **كشف الحقول غير المربوطة** على `meta.form` مع بانر تحذير.
+8. **تقارير Community فقط**: pivot/graph للـQueue وليدز Meta
+   (page/campaign/organic)، المحادثات (unread + متوسط أول رد لكل
+   موظف)، وFunnel (lead → opportunity → won/lost).
+9. **إعدادات**: `meta_sync_notify` و`meta_queue_notify`.
+
+## Migration 19.0.4.0.0
+
+Backfill لـ`last_inbound_at` و`first_response_seconds` على المحادثات
+القائمة — batched وidempotent وأعداد فقط، بلا حذف أو إعادة كتابة
+بيانات المستخدم. Rollback = revert للـcommit؛ الأعمدة الجديدة nullable.
 
 ## الملفات
 
-- جديدة: `models/meta_dedup.py`, `models/meta_lead_identity.py`,
-  `migrations/19.0.3.2.0/post-migration.py`, `tests/test_meta_dedup.py`
-- معدلة: `models/crm_lead.py`, `models/meta_lead_queue.py`,
-  `models/__init__.py`, `tests/__init__.py`, `security/ir.model.access.csv`,
-  `security/meta_security.xml`, `views/meta_lead_queue_views.xml`,
-  `__manifest__.py`, `docs/PROJECT_STATUS.md`
-
-لا تغيير على Controllers أو Webhook أو Messenger Inbox أو توزيع
-المندوبين أو التقارير.
+- موديلات جديدة: `meta_sync_run.py`, `meta_routing_rule.py`,
+  `meta_lead_backfill_wizard.py`, `migrations/19.0.4.0.0/`
+- Views جديدة: sync_run, routing_rule, lead_identity, backfill_wizard,
+  report_views
+- اختبارات جديدة: `test_meta_sync_run.py` (8)، `test_meta_routing.py`
+  (9)، `test_meta_messages_sync.py` (7)، `test_meta_queue_actions.py`
+  (9)، `test_meta_reports.py` (7)
+- معدلة: بقية models/views/security/data/manifest/tests init
 
 ## نتائج الفحوصات المحلية
 
-- `py_compile` ✅ — XML validation ✅ — `git diff --check` ✅
-- `deploy/validate_addon.py` ✅ (19.0.3.2.0) — اختبارات الريبو 14/14 ✅
-- دوال التطبيع: 20/20 حالة فعلية ✅
+- `py_compile` ✅ (كل models/tests/controllers/migration)
+- XML parse ✅ (19 ملفًا)
+- `git diff --check` ✅
+- `deploy/validate_addon.py` ✅ (19.0.4.0.0)
+- اختبارات الريبو 14/14 ✅
+- فحص أسرار على الـdiff: صفر ✅
 - اختبارات Odoo الفعلية: **لم تُشغَّل** (لا بيئة محلية).
 
-## التحقق بعد النشر (قبل اعتبارها ناجحة حيًا)
+## خطوات التحديث على الإنتاج (بعد الموافقة)
 
-- سطر ترحيل `19.0.3.2.0` بالأعداد في سجل Odoo.
-- أول ليد مكرر حقيقي يظهر `match_result` صحيحة + صف identity + ملاحظة
-  Chatter، دون Lead ثانٍ.
-- لا أخطاء Registry/XML/AccessError، ولا PII/توكنات في السجل.
+1. commit + push إلى `main` → CI/CD ينشر ويشغّل `-u crm_meta_lead_ads`
+   (migration 19.0.4.0.0 يعمل تلقائيًا).
+2. تحقق read-only: الخدمة active، سطر migration بالأعداد، لا أخطاء
+   Registry/XML/ACL/constraint، لا Tokens/PII في السجل.
+3. اختبار حي مؤجل من Batch 1B على النموذج `893155173379183` (صفحة
+   InverseGroup): Lead أول `created`، ثم مكرر بنفس البريد/الهاتف
+   `matched_*`، مع identity rows وخصوصية audit log.
+4. اختبار Sync All Meta Data على الحساب ثم Diagnostics.
 
 ## شروط دائمة
 
 - لا Tokens أو App Secrets أو بيانات عملاء في الكود أو السجلات.
-- Odoo 19 Community فقط؛ لا Enterprise ولا موديولات مدفوعة.
+- Odoo 19 Community فقط؛ لا Enterprise ولا موديولات مدفوعة ولا
+  scraping ولا تجاوز لسياسات Meta.
 - لا نشر دون طلب صريح من المستخدم.
-- الدفعة التالية (2: ربط المحادثات بـLead/Partner) لم تبدأ.

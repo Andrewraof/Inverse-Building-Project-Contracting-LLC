@@ -18,6 +18,8 @@
                     </block>
                     <block title="Inbox">
                         <setting string="Default Inbox Notify User" help="Receives notifications for new Meta messages when a conversation has no assigned user."><field name="meta_inbox_default_user_id"/></setting>
+                        <setting string="Queue Attention Notifications" help="Notify the fallback user when a queue event fails permanently or needs manual resolution."><field name="meta_queue_notify"/></setting>
+                        <setting string="Sync Run Completion Notification"><field name="meta_sync_notify"/></setting>
                     </block>
                     <block title="Connection">
                         <setting string="Connect Facebook Pages" help="Save settings first, then authorize Meta access for the current company."><a class="btn btn-primary" href="/meta_crm/connect">Connect Facebook Page</a></setting>

@@ -162,6 +162,34 @@
   (4) عزل كامل بين الشركات لبحث `meta_lead_id` وصفوف identity مع
   رفع أي تعارض بدل ابتلاعه.
 
+## Batch 2 — Complete Meta CRM Operations Suite (2026-09-25, v19.0.4.0.0)
+
+- موديلا `meta.sync.run` و`meta.sync.run.line`: زر Sync All Meta Data
+  يشغّل مهمة خلفية قابلة للاستئناف (work_state + cursors) عبر cron tick
+  بحد زمني، تغطي connection/pages/forms/leads/conversations/messages،
+  مع تقرير أعداد فقط وحالات نجاح جزئي، ومنع مهمتين نشطتين لنفس الحساب.
+  الخطوة ذات الصلاحية المفقودة تُتخطى بتحذير (Completed with warnings).
+- تبويب Diagnostics على حساب Meta: الصلاحيات الممنوحة/المفقودة وآخر
+  فحص وخطأ منقّى، مع توثيق أن CPL يتطلب `ads_read` (غير متاح حاليًا).
+- موديل `meta.routing.rule`: توزيع تلقائي بشروط (page/form/campaign/
+  adset/ad/platform/city/service/keyword) ونتيجة (team/user/priority/
+  tags/lead_type/activity)، أول قاعدة بالترتيب تفوز، ولا يستبدل
+  التعيين اليدوي إلا بخيار صريح `override_manual`.
+- Wizard سحب تاريخي `meta.lead.backfill.wizard` بنطاق تاريخي وحدود.
+- Queue Actions: Retry Selected/All Failed، Reset to Pending (Manager)،
+  Link Selected Lead للـambiguous (identity من نوع manual)، وكتم
+  إشعارات النجاح عبر `meta_queue_notify` و`meta_sync_notify`.
+- Inbox: مزامنة رسائل تاريخية (upsert بمعرف الرسالة، attachments
+  metadata فقط بلا تحميل)، `last_inbound_at` و`first_response_seconds`
+  مع migration 19.0.4.0.0 idempotent، حالة `pending` بعد الرد، فلتر
+  Needs Response > 24h، وزر Convert to Opportunity.
+- كشف الحقول غير المربوطة على `meta.form` (`unmapped_field_names`).
+- تقارير Community: pivot/graph للـQueue وليدز Meta والمحادثات
+  والـFunnel، وsmart buttons على crm.lead (identity + المحادثة).
+- اختبارات جديدة (40 اختبارًا) في 5 ملفات: sync_run, routing,
+  messages_sync, queue_actions, reports. لم تُشغَّل اختبارات Odoo
+  الفعلية بعد (لا بيئة محلية).
+
 ## بيئة الإنتاج
 
 - Odoo 19 Community.

@@ -1,0 +1,111 @@
+<odoo>
+    <!-- Queue ingestion report: outcomes, retries, processing time -->
+    <record id="view_meta_queue_pivot" model="ir.ui.view">
+        <field name="name">meta.lead.queue.pivot</field>
+        <field name="model">meta.lead.queue</field>
+        <field name="arch" type="xml">
+            <pivot string="Meta Queue Report" disable_linking="True">
+                <field name="page_id" type="row"/>
+                <field name="state" type="row"/>
+                <field name="match_result" type="col"/>
+                <field name="attempts" type="measure"/>
+                <field name="processing_seconds" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+    <record id="view_meta_queue_graph" model="ir.ui.view">
+        <field name="name">meta.lead.queue.graph</field>
+        <field name="model">meta.lead.queue</field>
+        <field name="arch" type="xml">
+            <graph string="Meta Queue Report" type="bar">
+                <field name="match_result"/>
+            </graph>
+        </field>
+    </record>
+    <record id="action_meta_queue_report" model="ir.actions.act_window">
+        <field name="name">Queue Report</field>
+        <field name="res_model">meta.lead.queue</field>
+        <field name="view_mode">pivot,graph,list</field>
+        <field name="search_view_id" ref="view_meta_queue_search"/>
+        <field name="context">{'search_default_group_state': 1}</field>
+    </record>
+
+    <!-- Meta-sourced CRM leads: per page/form/campaign/adset/ad, organic/paid -->
+    <record id="view_crm_lead_meta_pivot" model="ir.ui.view">
+        <field name="name">crm.lead.meta.pivot</field>
+        <field name="model">crm.lead</field>
+        <field name="arch" type="xml">
+            <pivot string="Meta Leads Report" disable_linking="True">
+                <field name="meta_page_id" type="row"/>
+                <field name="meta_campaign_name" type="row"/>
+                <field name="meta_is_organic" type="col"/>
+            </pivot>
+        </field>
+    </record>
+    <record id="view_crm_lead_meta_graph" model="ir.ui.view">
+        <field name="name">crm.lead.meta.graph</field>
+        <field name="model">crm.lead</field>
+        <field name="arch" type="xml">
+            <graph string="Meta Leads Report" type="bar">
+                <field name="meta_campaign_name"/>
+            </graph>
+        </field>
+    </record>
+    <record id="action_meta_leads_report" model="ir.actions.act_window">
+        <field name="name">Meta Leads Report</field>
+        <field name="res_model">crm.lead</field>
+        <field name="view_mode">pivot,graph</field>
+        <field name="domain">['|', ('meta_lead_id', '!=', False), ('meta_conversation_id', '!=', False)]</field>
+        <field name="context">{'pivot_measures': ['__count']}</field>
+    </record>
+
+    <!-- Conversations: workload, unread, average first response time -->
+    <record id="view_meta_conversation_pivot" model="ir.ui.view">
+        <field name="name">meta.conversation.pivot</field>
+        <field name="model">meta.conversation</field>
+        <field name="arch" type="xml">
+            <pivot string="Meta Conversations Report" disable_linking="True">
+                <field name="assigned_user_id" type="row"/>
+                <field name="state" type="col"/>
+                <field name="unread_count" type="measure"/>
+                <field name="first_response_seconds" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+    <record id="view_meta_conversation_graph" model="ir.ui.view">
+        <field name="name">meta.conversation.graph</field>
+        <field name="model">meta.conversation</field>
+        <field name="arch" type="xml">
+            <graph string="Meta Conversations Report" type="bar">
+                <field name="state"/>
+            </graph>
+        </field>
+    </record>
+    <record id="action_meta_conversation_report" model="ir.actions.act_window">
+        <field name="name">Conversations Report</field>
+        <field name="res_model">meta.conversation</field>
+        <field name="view_mode">pivot,graph,list</field>
+        <field name="search_view_id" ref="view_meta_conversation_search"/>
+    </record>
+
+    <!-- Funnel: Meta lead/conversation -> lead -> opportunity -> won/lost
+         (read counts per stage; ratios are read off the pivot) -->
+    <record id="view_crm_lead_meta_funnel_pivot" model="ir.ui.view">
+        <field name="name">crm.lead.meta.funnel.pivot</field>
+        <field name="model">crm.lead</field>
+        <field name="arch" type="xml">
+            <pivot string="Meta Funnel" disable_linking="True">
+                <field name="type" type="row"/>
+                <field name="stage_id" type="row"/>
+                <field name="active" type="col"/>
+            </pivot>
+        </field>
+    </record>
+    <record id="action_meta_funnel_report" model="ir.actions.act_window">
+        <field name="name">Meta Funnel</field>
+        <field name="res_model">crm.lead</field>
+        <field name="view_mode">pivot</field>
+        <field name="domain">['|', ('meta_lead_id', '!=', False), ('meta_conversation_id', '!=', False)]</field>
+        <field name="context">{'pivot_measures': ['__count']}</field>
+    </record>
+</odoo>

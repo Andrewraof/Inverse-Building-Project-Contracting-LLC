@@ -1,5 +1,5 @@
 import json
-from odoo import fields, models, _
+from odoo import api, fields, models, _
 
 
 class MetaForm(models.Model):
@@ -20,6 +20,21 @@ class MetaForm(models.Model):
     lead_type = fields.Selection([('lead', 'Lead'), ('opportunity', 'Opportunity')], default='lead', required=True)
     last_sync_date = fields.Datetime()
     polling_enabled = fields.Boolean(default=True)
+    unmapped_field_names = fields.Char(compute='_compute_unmapped_fields', readonly=True,
+                                       help='Question keys with no active mapping; their answers are still kept in the protected raw payload.')
+    has_unmapped_fields = fields.Boolean(compute='_compute_unmapped_fields')
+
+    @api.depends('questions_json', 'mapping_ids.active', 'mapping_ids.meta_field_name')
+    def _compute_unmapped_fields(self):
+        for form in self:
+            mapped = {m.meta_field_name for m in form.mapping_ids if m.active}
+            unmapped = []
+            for q in form.questions_json or []:
+                key = q.get('key') or q.get('name') or q.get('id')
+                if key and str(key) not in mapped:
+                    unmapped.append(str(key))
+            form.unmapped_field_names = ', '.join(unmapped) or False
+            form.has_unmapped_fields = bool(unmapped)
 
     _unique_form_company = models.Constraint('UNIQUE(meta_form_id, company_id)', 'This Meta form is already configured for this company.')
 

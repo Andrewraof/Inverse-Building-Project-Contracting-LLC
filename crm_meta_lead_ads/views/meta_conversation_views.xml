@@ -30,6 +30,7 @@
                     <button name="action_reopen" type="object" string="Reopen" invisible="state != 'closed'"/>
                     <button name="action_create_lead" type="object" string="Create Lead" invisible="lead_id != False"/>
                     <button name="action_open_lead" type="object" string="Open Lead" invisible="lead_id == False"/>
+                    <button name="action_convert_to_opportunity" type="object" string="Convert to Opportunity" invisible="lead_id != False"/>
                     <field name="state" widget="statusbar" statusbar_visible="new,open,pending,closed"/>
                 </header>
                 <sheet>
@@ -65,9 +66,13 @@
                             <group>
                                 <group>
                                     <field name="partner_id"/>
-                                    <field name="lead_id" readonly="1"/>
+                                    <field name="lead_id" domain="[('company_id','in',[company_id, False])]"/>
+                                    <field name="meta_thread_id" readonly="1"/>
                                 </group>
                                 <group>
+                                    <field name="last_inbound_at" readonly="1"/>
+                                    <field name="first_response_seconds" readonly="1"/>
+                                    <field name="history_synced_at" readonly="1"/>
                                     <field name="company_id" groups="base.group_multi_company" readonly="1"/>
                                     <field name="active" invisible="1"/>
                                 </group>
@@ -97,6 +102,9 @@
                 <filter name="filter_state_pending" string="Pending" domain="[('state', '=', 'pending')]"/>
                 <filter name="filter_state_closed" string="Closed" domain="[('state', '=', 'closed')]"/>
                 <filter name="filter_mine" string="Assigned to Me" domain="[('assigned_user_id', '=', uid)]"/>
+                <filter name="filter_overdue" string="Needs Response &gt; 24h" domain="[('state', '=', 'open'), ('last_inbound_at', '&lt;', (datetime.datetime.now() - datetime.timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S'))]"/>
+                <separator/>
+                <filter name="filter_last_inbound" string="Last Inbound" date="last_inbound_at"/>
                 <separator/>
                 <filter name="group_page" string="Page" context="{'group_by': 'page_id'}"/>
                 <filter name="group_assigned" string="Assignee" context="{'group_by': 'assigned_user_id'}"/>
@@ -111,7 +119,6 @@
         <field name="res_model">meta.conversation</field>
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="view_meta_conversation_search"/>
-        <field name="context">{'search_default_filter_unread': 0}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
                 No conversations yet. Incoming Messenger messages will appear here automatically.

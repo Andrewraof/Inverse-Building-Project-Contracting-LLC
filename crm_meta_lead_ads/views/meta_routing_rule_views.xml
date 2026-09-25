@@ -1,0 +1,91 @@
+<odoo>
+    <record id="view_meta_routing_rule_list" model="ir.ui.view">
+        <field name="name">meta.routing.rule.list</field>
+        <field name="model">meta.routing.rule</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="applies_on" widget="badge"/>
+                <field name="page_id" optional="show"/>
+                <field name="form_id" optional="show"/>
+                <field name="meta_campaign_id" optional="hide"/>
+                <field name="team_id" optional="show"/>
+                <field name="user_id" optional="show"/>
+                <field name="override_manual" optional="hide"/>
+                <field name="active" widget="boolean_toggle"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_meta_routing_rule_form" model="ir.ui.view">
+        <field name="name">meta.routing.rule.form</field>
+        <field name="model">meta.routing.rule</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_preview_matches" type="object" string="Preview Matches" help="Read-only preview of records this rule would match."/>
+                </header>
+                <sheet>
+                    <div class="oe_title"><h1><field name="name" placeholder="Rule name"/></h1></div>
+                    <group>
+                        <group>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                        </group>
+                        <group>
+                            <field name="applies_on"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Conditions" name="conditions">
+                            <group>
+                                <group>
+                                    <field name="page_id"/>
+                                    <field name="form_id"/>
+                                    <field name="meta_campaign_id"/>
+                                    <field name="meta_adset_id"/>
+                                    <field name="meta_ad_id"/>
+                                </group>
+                                <group>
+                                    <field name="meta_platform"/>
+                                    <field name="city"/>
+                                    <field name="service"/>
+                                    <field name="keyword_field"/>
+                                    <field name="keyword"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Result" name="result">
+                            <group>
+                                <group>
+                                    <field name="team_id"/>
+                                    <field name="user_id"/>
+                                    <field name="override_manual"/>
+                                    <field name="priority"/>
+                                </group>
+                                <group>
+                                    <field name="tag_ids" widget="many2many_tags"/>
+                                    <field name="lead_type"/>
+                                    <field name="activity_type_id"/>
+                                    <field name="activity_delay"/>
+                                </group>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="action_meta_routing_rule" model="ir.actions.act_window">
+        <field name="name">Meta Routing Rules</field>
+        <field name="res_model">meta.routing.rule</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No routing rules yet. Rules assign new Meta leads and conversations automatically.
+            </p>
+        </field>
+    </record>
+</odoo>

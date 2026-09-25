@@ -13,7 +13,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  odoo-tests:
+    uses: ./.github/workflows/odoo-meta-tests.yml
+
   validate-and-deploy:
+    needs: odoo-tests
     runs-on: ubuntu-latest
     environment: production
     steps:

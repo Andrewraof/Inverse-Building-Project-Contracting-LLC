@@ -27,6 +27,17 @@ class MetaMessage(models.Model):
     send_state = fields.Selection([('sent', 'Sent'), ('failed', 'Failed')], readonly=True, copy=False)
     failure_reason = fields.Char(readonly=True)
     attachments_json = fields.Json(readonly=True, groups='base.group_system')
+    attachments_summary = fields.Char(compute='_compute_attachments_summary', readonly=True,
+                                      help='Attachment types and names only; URLs stay in the system-only payload.')
+
+    @api.depends('attachments_json')
+    def _compute_attachments_summary(self):
+        for rec in self:
+            items = rec.attachments_json or []
+            rec.attachments_summary = ', '.join(
+                '%s%s' % (a.get('type') or 'attachment',
+                          ': %s' % a['name'] if a.get('name') else '')
+                for a in items) or False
 
     _unique_message = models.Constraint('UNIQUE(meta_message_id, company_id)', 'This Meta message is already recorded.')
 

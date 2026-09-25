@@ -4,3 +4,8 @@ from . import test_meta_lead_attribution
 from . import test_meta_polling
 from . import test_meta_dedup
 from . import test_meta_form_sync
+from . import test_meta_sync_run
+from . import test_meta_routing
+from . import test_meta_messages_sync
+from . import test_meta_queue_actions
+from . import test_meta_reports

@@ -13,3 +13,7 @@ class ResConfigSettings(models.TransientModel):
     meta_privacy_policy_url = fields.Char(config_parameter='crm_meta_lead_ads.privacy_policy_url')
     meta_deletion_status_base_url = fields.Char(config_parameter='crm_meta_lead_ads.deletion_status_base_url')
     meta_inbox_default_user_id = fields.Many2one('res.users', config_parameter='crm_meta_lead_ads.inbox_default_user_id')
+    meta_sync_notify = fields.Selection([
+        ('always', 'Always'), ('issues', 'Only on warnings or failures'), ('never', 'Never'),
+    ], config_parameter='crm_meta_lead_ads.sync_notify', default='issues')
+    meta_queue_notify = fields.Boolean(config_parameter='crm_meta_lead_ads.queue_notify', default=True)

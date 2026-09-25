@@ -29,6 +29,31 @@ class CrmLead(models.Model):
     meta_norm_email = fields.Char(index=True, copy=False, readonly=True)
     meta_norm_phone = fields.Char(index=True, copy=False, readonly=True)
     meta_identity_ids = fields.One2many('meta.lead.identity', 'crm_lead_id', readonly=True)
+    meta_identity_count = fields.Integer(compute='_compute_meta_identity_count')
+    meta_routing_rule_id = fields.Many2one('meta.routing.rule', copy=False, readonly=True,
+                                           help='Routing rule that assigned this lead, if any.')
+
+    @api.depends('meta_identity_ids')
+    def _compute_meta_identity_count(self):
+        for rec in self:
+            rec.meta_identity_count = len(rec.meta_identity_ids)
+
+    def action_open_meta_identities(self):
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_window', 'name': 'Meta Lead IDs',
+            'res_model': 'meta.lead.identity',
+            'domain': [('crm_lead_id', '=', self.id)],
+            'view_mode': 'list,form', 'target': 'current',
+        }
+
+    def action_open_meta_conversation(self):
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_window', 'name': 'Meta Conversation',
+            'res_model': 'meta.conversation', 'res_id': self.meta_conversation_id.id,
+            'view_mode': 'form', 'target': 'current',
+        }
 
     _unique_meta_lead = models.Constraint('UNIQUE(meta_lead_id)', 'This Meta lead was already imported.')
 

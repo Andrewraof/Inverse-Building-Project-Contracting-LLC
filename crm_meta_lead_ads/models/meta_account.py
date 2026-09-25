@@ -6,6 +6,12 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
+# Permissions the connector is designed around (Graph API current).
+REQUIRED_PERMISSIONS = (
+    'leads_retrieval', 'pages_show_list', 'pages_read_engagement',
+    'pages_manage_metadata', 'pages_messaging',
+)
+
 
 class MetaAccount(models.Model):
     _name = 'meta.account'
@@ -30,6 +36,12 @@ class MetaAccount(models.Model):
     webhook_url = fields.Char(compute='_compute_urls')
     deletion_url = fields.Char(compute='_compute_urls')
     last_connected_at = fields.Datetime(readonly=True)
+    # Diagnostics — codenames only, never tokens.
+    granted_permissions = fields.Char(readonly=True, copy=False)
+    missing_permissions = fields.Char(readonly=True, copy=False)
+    permissions_checked_at = fields.Datetime(readonly=True, copy=False)
+    app_mode = fields.Char(readonly=True, copy=False,
+                           default='Unknown — check the Meta App Dashboard')
 
 
     @api.depends('webhook_key')
@@ -91,6 +103,75 @@ class MetaAccount(models.Model):
             self.activity_schedule('mail.mail_activity_data_todo', summary=_('Meta token requires re-authentication'), note=msg)
         elif code in (200, 368):
             self.write({'state': 'error', 'error_message': f'{code}: {msg}'})
+
+    def _fetch_permissions(self):
+        """Fetch granted permissions via GET me/permissions and refresh the
+        diagnostics fields. Returns (granted, missing) codename lists, or
+        (None, None) when the endpoint is unavailable — callers must keep
+        going in that case (the endpoint may be restricted in some modes)."""
+        self.ensure_one()
+        if not self.user_access_token:
+            return None, None
+        try:
+            data = self._request('GET', 'me/permissions',
+                                 token=self.user_access_token, params={'limit': 200})
+        except Exception:
+            return None, None
+        granted = {p.get('name') for p in data.get('data') or []
+                   if p.get('status') == 'granted' and p.get('name')}
+        missing = [p for p in REQUIRED_PERMISSIONS if p not in granted]
+        self.write({
+            'granted_permissions': ','.join(sorted(granted)) or False,
+            'missing_permissions': ','.join(missing) or False,
+            'permissions_checked_at': fields.Datetime.now(),
+        })
+        return sorted(granted), missing
+
+    def action_run_diagnostics(self):
+        """Refresh connection state, granted/missing permissions and the
+        webhook subscription of every page. Never raises: each check
+        writes its own sanitized outcome."""
+        self.ensure_one()
+        try:
+            self.action_test_connection()
+        except Exception as exc:
+            safe = self._sanitize_error(
+                exc, [self.user_access_token, self.app_secret])
+            self.write({'state': 'error', 'error_message': safe})
+        self._fetch_permissions()
+        for page in self.with_context(active_test=False).page_ids:
+            if page.page_access_token:
+                page._verify_subscription()
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Meta Diagnostics'),
+                'message': _('Diagnostics refreshed. Check the Diagnostics tab.'),
+                'type': 'success' if not self.missing_permissions else 'warning',
+                'sticky': False,
+            },
+        }
+
+    def action_sync_all_meta_data(self):
+        """Create (or reopen) the single active full-sync run for this
+        account. The heavy work is done by the meta.sync.run cron in
+        resumable ticks — this HTTP request returns immediately."""
+        self.ensure_one()
+        Run = self.env['meta.sync.run']
+        existing = Run.search([
+            ('account_id', '=', self.id),
+            ('state', 'in', ('draft', 'running')),
+        ], limit=1)
+        if existing:
+            return existing._form_action()
+        run = Run.create({
+            'account_id': self.id,
+            'company_id': self.company_id.id,
+            'run_type': 'all',
+        })
+        run.action_start()
+        return run._form_action()
 
     def action_disconnect(self):
         Page = self.env['meta.page'].with_context(active_test=False)

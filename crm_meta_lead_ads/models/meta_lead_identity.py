@@ -19,6 +19,7 @@ class MetaLeadIdentity(models.Model):
         ('matched_email', 'Matched by Email'),
         ('matched_phone', 'Matched by Phone'),
         ('duplicate_meta_id', 'Same Meta Lead ID'),
+        ('manual', 'Manual Resolution'),
         ('backfill', 'Backfill'),
     ], required=True, index=True)
 
