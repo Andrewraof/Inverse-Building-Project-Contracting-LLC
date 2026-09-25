@@ -145,7 +145,14 @@ class TestMetaLeadAttribution(TransactionCase):
             self.assertNotIn('pagetok-SECRET-1', log.message or '')
 
     def test_lead_form_view_shows_attribution_fields(self):
-        arch = self.Lead.get_view(view_type='form')['arch']
+        user = self.env['res.users'].create({
+            'name': 'Meta CRM user', 'login': 'meta_crm_view_test',
+            'group_ids': [(6, 0, [
+                self.env.ref('sales_team.group_sale_salesman').id,
+                self.env.ref('crm_meta_lead_ads.group_meta_lead_user').id,
+            ])],
+        })
+        arch = self.Lead.with_user(user).get_view(view_type='form')['arch']
         for field_name in ('meta_campaign_id', 'meta_campaign_name', 'meta_adset_id',
                            'meta_adset_name', 'meta_ad_name', 'meta_adgroup_id'):
             self.assertIn(field_name, arch)
@@ -156,7 +163,7 @@ class TestMetaLeadAttribution(TransactionCase):
             'name': 'CRM-only user', 'login': 'crm_only_identity_test',
             'group_ids': [(6, 0, [self.env.ref('sales_team.group_sale_salesman').id])],
         })
-        lead = self.Lead.create({'name': 'Customer lead'})
+        lead = self.Lead.create({'name': 'Customer lead', 'user_id': user.id})
         self.env['meta.lead.identity'].create({
             'company_id': self.env.company.id, 'crm_lead_id': lead.id,
             'meta_lead_id': 'crm-only-access-1', 'match_type': 'created',
