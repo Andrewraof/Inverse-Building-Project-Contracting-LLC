@@ -268,9 +268,10 @@ class MetaConversation(models.Model):
         self.ensure_one()
         if not lead:
             raise UserError(_('Select a CRM lead to link first.'))
-        # Lock in a stable order (lead, then conversation). A concurrent
-        # link must commit before we re-read either side; otherwise two
-        # conversations can both believe they own the same lead.
+        # Lock in a stable order (lead, then conversation). If another
+        # transaction changed the lead first, Odoo's repeatable-read
+        # transaction fails serialization and its request retry rechecks
+        # both sides in a fresh snapshot instead of overwriting the link.
         self.env.cr.execute('SELECT id FROM crm_lead WHERE id = %s FOR UPDATE',
                             (lead.id,))
         if not self.env.cr.fetchone():

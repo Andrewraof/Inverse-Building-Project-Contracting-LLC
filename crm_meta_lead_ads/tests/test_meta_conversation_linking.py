@@ -1,6 +1,8 @@
 import threading
 import uuid
 
+from psycopg2.errors import SerializationFailure
+
 from odoo import SUPERUSER_ID, api
 from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase
@@ -198,16 +200,29 @@ class TestMetaConversationConcurrentLink(TransactionCase):
                 timer = threading.Timer(1, release.set)
                 timer.start()
                 rejected = False
+                retry_needed = False
                 try:
                     conv_a._link_to_lead(lead)
                 except UserError:
                     rejected = True
+                except SerializationFailure:
+                    # Odoo's request layer retries this transaction with
+                    # a fresh snapshot after the competing commit.
+                    retry_needed = True
                 finally:
                     # Never commit the contender's attempted link.
                     main_cr.rollback()
             worker.join(timeout=30)
             self.assertFalse(worker.is_alive())
             self.assertFalse(worker_errors)
+            if retry_needed:
+                with registry.cursor() as retry_cr:
+                    env = api.Environment(retry_cr, SUPERUSER_ID, {})
+                    with self.assertRaises(UserError):
+                        env['meta.conversation'].browse(conv_a_id)._link_to_lead(
+                            env['crm.lead'].browse(lead_id))
+                    retry_cr.rollback()
+                rejected = True
             self.assertTrue(rejected, 'A competing committed link was overwritten')
             with registry.cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
