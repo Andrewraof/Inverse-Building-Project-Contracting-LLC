@@ -110,7 +110,9 @@ class TestMetaConversationLinking(TransactionCase):
         self.assertFalse(lead.email_from)
         self.assertEqual(lead.partner_name, conv.sender_name)
 
-    # 9. A Meta user with sales access can run the link wizard.
+    # 9. A Meta user with sales access can link their own lead.
+    # (CRM record rules still apply: linking a lead requires write
+    # access to it, same as editing it directly.)
     def test_link_wizard_user_group_access(self):
         user = self.env['res.users'].create({
             'name': 'Link Meta User', 'login': 'link-meta-user@test',
@@ -119,7 +121,7 @@ class TestMetaConversationLinking(TransactionCase):
                           (4, self.env.ref('sales_team.group_sale_salesman').id)],
         })
         conv = self._conversation()
-        lead = self._lead()
+        lead = self._lead(user_id=user.id)
         wizard = self._wizard(conv, lead).with_user(user)
         wizard.action_link()
         self.assertEqual(conv.lead_id, lead)
