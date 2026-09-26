@@ -5,6 +5,8 @@ import threading
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
+from psycopg2.errors import SerializationFailure
+
 from odoo import SUPERUSER_ID, api, fields
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.modules.registry import Registry
@@ -509,6 +511,12 @@ class TestMetaHealthConcurrency(TransactionCase):
                                    ('Account connection needs attention',
                                     company_id, account_id,
                                     'account_disconnected', 'error', 'open'))
+                    # Production _cron_assess_health writes health_checked_at
+                    # before commit. With Odoo's repeatable-read snapshot, B
+                    # may safely fail serialization at FOR UPDATE and retry
+                    # next cron pass instead of seeing A's row as a duplicate.
+                    cr.execute('UPDATE meta_account SET health_checked_at=now() '
+                               'WHERE id=%s', (account_id,))
                     cr.commit()
             except Exception as exc:
                 errors.append(exc)
@@ -541,7 +549,8 @@ class TestMetaHealthConcurrency(TransactionCase):
                 env['meta.health.alert'].search([('account_id', '=', account_id)]).unlink()
                 env['meta.account'].browse(account_id).unlink()
                 cr.commit()
-        self.assertFalse(errors)
+        self.assertTrue(all(isinstance(exc, SerializationFailure)
+                            for exc in errors), errors)
 
 
 class TestMetaHealthViews(TransactionCase):
