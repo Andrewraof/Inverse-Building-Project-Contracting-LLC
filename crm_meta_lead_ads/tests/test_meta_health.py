@@ -152,6 +152,8 @@ class TestMetaDiagnostics(TransactionCase):
 
     def _run(self, connection_error=False, scopes=None, subscription_fields=None,
              permission_error=False):
+        self.env.user.group_ids = [(4, self.env.ref(
+            'crm_meta_lead_ads.group_meta_lead_manager').id)]
         if scopes is None:
             scopes = ('leads_retrieval', 'pages_show_list',
                       'pages_read_engagement', 'pages_manage_metadata',
@@ -216,6 +218,19 @@ class TestMetaDiagnostics(TransactionCase):
         self.assertTrue(self.account.diagnostic_checked_at)
         self.assertEqual(action['params']['type'], 'success')
 
+    def test_non_manager_cannot_trigger_remote_diagnostics(self):
+        user = self.env['res.users'].create({
+            'name': 'Health Diagnostic User', 'login': 'health_diag_user',
+            'company_id': self.env.company.id,
+            'company_ids': [(6, 0, [self.env.company.id])],
+            'group_ids': [(6, 0, [self.env.ref('base.group_user').id,
+                                   self.env.ref('crm_meta_lead_ads.group_meta_lead_user').id])],
+        })
+        with patch.object(type(self.account), '_request',
+                          side_effect=AssertionError('Graph called by non-manager')):
+            with self.assertRaises(UserError):
+                self.account.with_user(user).action_run_diagnostics()
+
 
 class TestMetaHealthSnapshot(TransactionCase):
     @classmethod
@@ -256,6 +271,21 @@ class TestMetaHealthSnapshot(TransactionCase):
         snap = self.account._health_snapshot(now)
         self.assertEqual(snap['level'], 'unknown')
         self.assertNotIn('webhook_silence', snap['issues'])
+
+    def test_opt_in_during_create_starts_silence_clock(self):
+        account = self.env['meta.account'].create({
+            'name': 'Create Enabled Health', 'company_id': self.env.company.id,
+            'app_id': 'create-enabled-app', 'app_secret': 'create-enabled-secret',
+            'health_monitor_enabled': True, 'health_silence_minutes': 60,
+        })
+        self.assertTrue(account.health_enabled_at)
+
+    def test_fresh_diagnostic_failure_is_visible_to_monitor(self):
+        now = fields.Datetime.now()
+        self.account.write({'health_monitor_enabled': True,
+                            'diagnostic_status': 'failure',
+                            'diagnostic_checked_at': now})
+        self.assertIn('diagnostic_failed', self.account._health_snapshot(now)['issues'])
 
     def test_due_jobs_exclude_future_retries_and_other_account(self):
         now = fields.Datetime.now()
