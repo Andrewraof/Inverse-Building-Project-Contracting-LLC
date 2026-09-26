@@ -82,9 +82,10 @@ class MetaHealthBase(TransactionCase):
             'group_ids': [(4, self.env.ref(group_xmlid).id)],
         })
 
-    def _make_manager(self, login='health_manager', companies=None):
+    def _make_manager(self, login='health_manager', companies=None, company=None):
+        home = company or self.company
         manager = self._make_user(
-            login, self.company, 'crm_meta_lead_ads.group_meta_lead_manager',
+            login, home, 'crm_meta_lead_ads.group_meta_lead_manager',
             companies=companies)
         # Meta groups carry their own privilege, so they do not imply the
         # internal-user group; without it the owner would be share=True.
@@ -388,7 +389,7 @@ class TestMetaHealthMonitor(MetaHealthBase):
             'res_id': self.account.id, 'user_id': owner.id, 'summary': 'call admin',
             'date_deadline': fields.Date.today()})
         # Acknowledge suppresses reminders for this episode.
-        alert.action_acknowledge()
+        alert.with_user(owner).action_acknowledge()
         self.assertEqual(alert.state, 'acknowledged')
         self._run_monitor()
         self.assertEqual(len(self._health_activities(alert)), 1)
@@ -475,8 +476,9 @@ class TestMetaHealthMonitor(MetaHealthBase):
         with self.assertRaises(ValidationError):
             self.account.health_owner_id = manager.id
         other_company = self.env['res.company'].create({'name': 'Owner Other Co'})
-        outsider = self._make_manager(login='health_outsider', companies=[other_company])
-        outsider.company_id = other_company.id
+        outsider = self._make_manager(
+            login='health_outsider', companies=[other_company],
+            company=other_company)
         with self.assertRaises(ValidationError):
             self.account.health_owner_id = outsider.id
 

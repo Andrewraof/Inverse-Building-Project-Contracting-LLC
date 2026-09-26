@@ -238,7 +238,8 @@ class MetaHealthAlert(models.Model):
         now = fields.Datetime.now()
         company = account.company_id
         active = set()
-        secrets = [account.user_access_token, account.app_secret]
+        account_sudo = account.sudo()
+        secrets = [account_sudo.user_access_token, account_sudo.app_secret]
         if not account.health_monitoring_enabled:
             # Disabled monitoring means no alerts, ever — even for a manual
             # Check Now. The health level stays "Disabled".
