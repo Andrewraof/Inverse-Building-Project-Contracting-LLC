@@ -150,6 +150,60 @@ class MetaHealthAlert(models.Model):
 class MetaAccountHealth(models.Model):
     _inherit = 'meta.account'
 
+    health_alert_ids = fields.One2many('meta.health.alert', 'account_id',
+                                       readonly=True)
+    health_level = fields.Selection([
+        ('disabled', 'Disabled'), ('unknown', 'Unknown'),
+        ('ok', 'No detected issues'), ('warning', 'Warning'),
+        ('error', 'Error')], compute='_compute_health_screen')
+    health_due_queue_count = fields.Integer(compute='_compute_health_screen')
+    health_oldest_due_minutes = fields.Integer(compute='_compute_health_screen')
+    health_failed_queue_count = fields.Integer(compute='_compute_health_screen')
+    health_ambiguous_queue_count = fields.Integer(compute='_compute_health_screen')
+    health_failed_outbound_count = fields.Integer(compute='_compute_health_screen')
+    health_last_sync_state = fields.Char(compute='_compute_health_screen')
+    health_last_sync_at = fields.Datetime(compute='_compute_health_screen')
+
+    def _compute_health_screen(self):
+        now = fields.Datetime.now()
+        Run = self.env['meta.sync.run'].sudo()
+        for account in self:
+            snapshot = account._health_snapshot(now)
+            account.health_level = snapshot['level']
+            account.health_due_queue_count = snapshot['due_queue_count']
+            account.health_oldest_due_minutes = snapshot['oldest_due_minutes']
+            account.health_failed_queue_count = snapshot['failed_queue_count']
+            account.health_ambiguous_queue_count = snapshot['ambiguous_queue_count']
+            account.health_failed_outbound_count = snapshot['failed_outbound_24h_count']
+            last = Run.search([('account_id', '=', account.id),
+                               ('company_id', '=', account.company_id.id)],
+                              order='id desc', limit=1)
+            account.health_last_sync_state = last.state or False
+            account.health_last_sync_at = last.write_date or False
+
+    def _health_drilldown(self, model, title, page=False):
+        self.ensure_one()
+        if not self.env.user.has_group('crm_meta_lead_ads.group_meta_lead_manager'):
+            raise UserError(_('Only Meta Lead Ads managers may inspect health details.'))
+        if self.company_id not in self.env.companies:
+            raise UserError(_('This account is outside your allowed companies.'))
+        if page and (page.account_id != self or page.company_id != self.company_id):
+            raise UserError(_('The selected page does not belong to this account.'))
+        domain = [('company_id', '=', self.company_id.id),
+                  ('page_id.account_id', '=', self.id)]
+        if page:
+            domain.append(('page_id', '=', page.id))
+        else:
+            domain.append(('page_id', 'in', self.page_ids.ids))
+        return {'type': 'ir.actions.act_window', 'name': title,
+                'res_model': model, 'view_mode': 'list,form', 'domain': domain}
+
+    def action_health_queue(self, page=False):
+        return self._health_drilldown('meta.lead.queue', _('Meta Ingestion Queue'), page)
+
+    def action_health_messages(self, page=False):
+        return self._health_drilldown('meta.message', _('Meta Messages'), page)
+
     def _reconcile_health(self, snapshot, now):
         self.ensure_one()
         Alert = self.env['meta.health.alert'].sudo()
