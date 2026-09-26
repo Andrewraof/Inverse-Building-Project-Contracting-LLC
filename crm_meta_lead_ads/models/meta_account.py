@@ -173,6 +173,10 @@ class MetaAccount(models.Model):
         webhook subscription of every page. Never raises: each check
         writes its own sanitized outcome."""
         self.ensure_one()
+        if not self.env.user.has_group('crm_meta_lead_ads.group_meta_lead_manager'):
+            raise UserError(_('Only Meta Lead Ads managers may run diagnostics.'))
+        if self.company_id not in self.env.companies:
+            raise UserError(_('This account is outside your allowed companies.'))
         connection_ok = True
         try:
             self.action_test_connection()
@@ -231,6 +235,16 @@ class MetaAccount(models.Model):
                     and owner.with_user(owner).has_group(
                         'crm_meta_lead_ads.group_meta_lead_manager'))
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        prepared = []
+        for values in vals_list:
+            values = dict(values)
+            if values.get('health_monitor_enabled') and not values.get('health_enabled_at'):
+                values['health_enabled_at'] = fields.Datetime.now()
+            prepared.append(values)
+        return super().create(prepared)
+
     def write(self, vals):
         if 'health_monitor_enabled' in vals and 'health_enabled_at' not in vals:
             # An explicit false disables the silence clock. A later opt-in
@@ -280,6 +294,8 @@ class MetaAccount(models.Model):
                 issue('token_expiring')
         if self.diagnostic_checked_at and self.diagnostic_checked_at < now - timedelta(hours=24):
             issue('diagnostic_stale')
+        elif self.diagnostic_checked_at and self.diagnostic_status == 'failure':
+            issue('diagnostic_failed', severity='error')
         company_scope = [('company_id', '=', self.company_id.id),
                          ('page_id', 'in', page_ids)]
         if page_ids:

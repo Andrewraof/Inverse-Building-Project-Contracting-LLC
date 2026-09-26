@@ -13,6 +13,7 @@ CHECK_LABELS = {
     'token_expired': 'Known token expiry',
     'token_expiring': 'Known token expiry approaching',
     'diagnostic_stale': 'Diagnostics older than 24 hours',
+    'diagnostic_failed': 'Latest diagnostics reported a failure',
     'subscription_stale': 'Subscription check older than 24 hours',
     'subscription_failed': 'Latest subscription check failed',
     'subscription_incomplete': 'Latest subscription check incomplete',
@@ -160,6 +161,8 @@ class MetaAccountHealth(models.Model):
 
     health_alert_ids = fields.One2many('meta.health.alert', 'account_id',
                                        readonly=True)
+    health_owner_eligible = fields.Boolean(compute='_compute_health_screen',
+                                          string='Eligible alert owner')
     health_level = fields.Selection([
         ('disabled', 'Disabled'), ('unknown', 'Unknown'),
         ('ok', 'No detected issues'), ('warning', 'Warning'),
@@ -177,6 +180,7 @@ class MetaAccountHealth(models.Model):
         Run = self.env['meta.sync.run'].sudo()
         for account in self:
             snapshot = account._health_snapshot(now)
+            account.health_owner_eligible = account._health_owner_eligible()
             account.health_level = snapshot['level']
             account.health_due_queue_count = snapshot['due_queue_count']
             account.health_oldest_due_minutes = snapshot['oldest_due_minutes']

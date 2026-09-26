@@ -40,6 +40,7 @@
                         <group string="Monitoring (opt in)">
                             <field name="health_monitor_enabled"/>
                             <field name="health_owner_id"/>
+                            <field name="health_owner_eligible" readonly="1"/>
                             <field name="health_due_minutes"/>
                             <field name="health_silence_minutes"/>
                             <field name="health_token_warning_days"/>
