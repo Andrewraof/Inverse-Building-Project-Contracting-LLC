@@ -1,14 +1,17 @@
 import hashlib
 import hmac
 import json
+import threading
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from psycopg2 import IntegrityError
+from psycopg2.errors import SerializationFailure
 
-from odoo import fields
+from odoo import SUPERUSER_ID, api, fields
 from odoo.exceptions import AccessError, UserError, ValidationError
+from odoo.modules.registry import Registry
 from odoo.tests.common import TransactionCase
 
 from odoo.addons.crm_meta_lead_ads.controllers.main import MetaLeadController
@@ -219,6 +222,37 @@ class TestMetaHealthEvidence(MetaHealthBase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(self.page.last_webhook_event_at)
         self.assertFalse(self.page.last_live_message_at)
+
+    def test_leadgen_enqueue_failure_keeps_event_receipt(self):
+        """A valid, signed, page-matched leadgen event whose enqueue fails
+        must still leave event-receipt evidence (stamped BEFORE processing)
+        and the webhook still answers 200 — the 5-minute recovery polling
+        covers the lost enqueue."""
+        with patch.object(type(self.env['meta.lead.queue']), 'enqueue_event',
+                          side_effect=Exception('boom')):
+            response = self._call_webhook(
+                'secret', self._leadgen_payload('L-9'), account=self.account)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.page.last_webhook_event_at)
+        self.assertTrue(self.account.last_webhook_event_at)
+        self.assertFalse(self.page.last_live_lead_enqueued_at)
+        self.assertFalse(self.env['meta.lead.queue'].search([('meta_lead_id', '=', 'L-9')]))
+        self.assertFalse(self.page2.last_webhook_event_at)
+
+    def test_messaging_processing_failure_keeps_event_receipt(self):
+        """The messaging path stamps the event receipt before processing;
+        a recording failure must not erase it nor produce a message stamp."""
+        payload = {'object': 'page', 'entry': [{'id': '100', 'messaging': [{
+            'sender': {'id': '9001'}, 'recipient': {'id': '100'},
+            'timestamp': 1727500000000,
+            'message': {'mid': 'm-fail', 'text': 'hello'}}]}]}
+        with patch.object(type(self.env['meta.conversation']), '_record_inbound_message',
+                          side_effect=Exception('boom')):
+            response = self._call_webhook('secret', payload, account=self.account)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.page.last_webhook_event_at)
+        self.assertFalse(self.page.last_live_message_at)
+        self.assertFalse(self.env['meta.message'].search([('meta_message_id', '=', 'm-fail')]))
 
 
 class TestMetaHealthMonitor(MetaHealthBase):
@@ -525,6 +559,10 @@ class TestMetaHealthMonitor(MetaHealthBase):
             self.assertNotIn(marker, activity.note or '')
         for message in alert.message_ids:
             self.assertNotIn(marker, message.body or '')
+        # The manual Check Now action returns only a display_notification
+        # dict — the sanitization-input secrets must not reach it either.
+        result = self.account.action_health_check_now()
+        self.assertNotIn(marker, str(result))
 
 
 class TestMetaHealthDiagnostics(MetaHealthBase):
@@ -667,3 +705,221 @@ class TestMetaHealthAccess(MetaHealthBase):
             allowed_company_ids=[self.company.id, other_company.id]).search_count(
             [('company_id', '=', other_company.id)])
         self.assertEqual(found, 1)
+
+    def test_cross_company_manager_blocked_before_sudo(self):
+        """A manager of company B calling health actions on a company-A
+        account (e.g. by guessing the id over RPC) must get a clean
+        UserError BEFORE any sudo-scoped query runs against company A."""
+        other_company = self.env['res.company'].create({'name': 'Guard Other Co'})
+        manager_b = self._make_manager(
+            login='health_guard_mgr', companies=[other_company], company=other_company)
+        account_as_b = self.account.with_user(manager_b)
+        with self.assertRaises(UserError):
+            account_as_b.action_health_check_now()
+        with self.assertRaises(UserError):
+            account_as_b.action_health_open_queue()
+        # Nothing was assessed: no check timestamp, no alerts.
+        self.assertFalse(self.account.health_last_check_at)
+        self.assertFalse(self._alerts_for(self.account))
+        # Same-company managers still pass the guard.
+        manager_a = self._make_manager(login='health_guard_mgr_a')
+        self.account.with_user(manager_a).action_health_check_now()
+
+    def test_cross_company_aggregate_counts_not_visible(self):
+        """The aggregate computes are scoped by company AND account; a
+        manager restricted to another company must not reach company A's
+        numbers at all (record rule hides the record, reads raise)."""
+        queued = self.env['meta.lead.queue'].enqueue_event(
+            self.company, self.page, 'L-x1', None, {})
+        queued.state = 'failed'
+        self.assertEqual(self.account.health_failed_ambiguous_count, 1)
+        other_company = self.env['res.company'].create({'name': 'Metrics Other Co'})
+        manager_b = self._make_manager(
+            login='health_metrics_mgr', companies=[other_company], company=other_company)
+        self.assertEqual(
+            self.env['meta.account'].with_user(manager_b).search_count(
+                [('id', '=', self.account.id)]), 0)
+        with self.assertRaises(AccessError):
+            self.account.with_user(manager_b).read(['health_failed_ambiguous_count'])
+
+
+class TestMetaHealthBatch(MetaHealthBase):
+    """The bounded monitor cursor must advance through ALL enabled
+    accounts instead of re-checking the same first batch forever."""
+
+    def test_batch_cursor_advances_and_rotates(self):
+        accounts = self.env['meta.account']
+        for index in range(27):
+            accounts |= self.env['meta.account'].create({
+                'name': 'Batch %02d' % index, 'company_id': self.company.id,
+                'app_id': 'batch-app-%02d' % index,
+                'app_secret': 'batch-secret-%02d' % index,
+                'health_monitoring_enabled': True,
+            })
+        # Pass 1 checks exactly the bounded batch of 25 distinct accounts.
+        self._run_monitor()
+        checked = accounts.filtered('health_last_check_at')
+        self.assertEqual(len(checked), 25)
+        self.assertEqual(len(set(checked.ids)), 25)
+        # Pass 2 picks up the 2 leftover accounts first (NULLS FIRST).
+        self._run_monitor()
+        self.assertEqual(len(accounts.filtered('health_last_check_at')), 27)
+        late = accounts - checked
+        self.assertEqual(len(late), 2)
+        late_ts = {acc.id: acc.health_last_check_at for acc in late}
+        oldest = checked.sorted('health_last_check_at')[:1]
+        oldest_ts = oldest.health_last_check_at
+        # Pass 3 re-checks the OLDEST-checked accounts (rotation, not
+        # starvation) and leaves the most recently checked batch alone.
+        self._run_monitor()
+        self.assertGreater(oldest.health_last_check_at, oldest_ts)
+        for acc_id, ts in late_ts.items():
+            self.assertEqual(accounts.browse(acc_id).health_last_check_at, ts)
+
+
+class TestMetaHealthUpsertConcurrency(TransactionCase):
+    """REAL two-transaction concurrency proof for the health alert upsert.
+
+    All fixtures are created and committed through an INDEPENDENT cursor
+    (self.env.cr is never committed, so the TransactionCase savepoint
+    stays intact), two worker threads race ``_upsert_alert`` for the same
+    (account, page, check code) in genuinely overlapping transactions,
+    and everything is removed through an independent cursor in
+    ``finally``.
+
+    Odoo runs REPEATABLE READ: the losing transaction's colliding INSERT
+    blocks on the winner's uncommitted tuple, then surfaces as a
+    serialization failure (40001) — not a plain unique violation — and
+    its fixed snapshot can never see the winner's row, so the loser must
+    restart its transaction and then REUSES the winner's alert through
+    the upsert pre-check. The production cron achieves the same
+    convergence via its per-account savepoint plus the next 5-minute
+    pass; no code path can ever produce a second row for the same key.
+
+    Requires a live PostgreSQL — like every Odoo test in this project it
+    could NOT be executed in the local static environment; it is written
+    for a disposable CI/staging database."""
+
+    EVENT_TIMEOUT = 30       # seconds; a healthy run finishes in < 2s
+    BLOCK_PROOF_SECONDS = 3  # B must stay blocked at least this long
+
+    def test_concurrent_upserts_converge_to_single_incident(self):
+        registry = Registry(self.env.cr.dbname)
+        activity_type_id = self.env.ref(
+            'crm_meta_lead_ads.mail_activity_data_meta_health').id
+        manager_group = self.env.ref('crm_meta_lead_ads.group_meta_lead_manager').id
+        internal_group = self.env.ref('base.group_user').id
+
+        # Fixture through an independent, committed cursor: an enabled
+        # account with an eligible owner so the winner's transaction also
+        # creates the incident's single notification activity.
+        with registry.cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            manager = env['res.users'].create({
+                'name': 'Race Manager', 'login': 'health_race_manager',
+                'company_id': env.company.id, 'company_ids': [(6, 0, [env.company.id])],
+                'group_ids': [(6, 0, [manager_group, internal_group])],
+            })
+            account = env['meta.account'].create({
+                'name': 'Race Account', 'company_id': env.company.id,
+                'app_id': 'race-app', 'app_secret': 'race-secret',
+                'health_monitoring_enabled': True, 'health_owner_id': manager.id,
+            })
+            cr.commit()
+            account_id, manager_id = account.id, manager.id
+
+        inserted_a = threading.Event()
+        release_a = threading.Event()
+        done_b = threading.Event()
+        results = {}
+        errors = []
+
+        def upsert_in_new_transaction(detail):
+            with registry.cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                account = env['meta.account'].browse(account_id)
+                alert = env['meta.health.alert']._upsert_alert(
+                    account, False, 'account_error', 'error', detail, 0)
+                cr.commit()
+                return alert.id
+
+        def winner():
+            try:
+                with registry.cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    account = env['meta.account'].browse(account_id)
+                    alert = env['meta.health.alert']._upsert_alert(
+                        account, False, 'account_error', 'error', 'from winner', 0)
+                    results['winner_alert'] = alert.id
+                    inserted_a.set()
+                    # Hold the transaction open: the loser's INSERT must
+                    # block on our uncommitted unique-key tuple.
+                    release_a.wait(timeout=self.EVENT_TIMEOUT)
+                    cr.commit()
+            except Exception as exc:
+                errors.append(('winner', exc))
+
+        def loser():
+            try:
+                inserted_a.wait(timeout=self.EVENT_TIMEOUT)
+                try:
+                    results['loser_alert'] = upsert_in_new_transaction('from loser')
+                except (SerializationFailure, IntegrityError):
+                    # The colliding INSERT lost the race. A fresh
+                    # transaction sees the winner's committed row and the
+                    # upsert reuses it (open state → silent update only).
+                    results['loser_alert'] = upsert_in_new_transaction('from loser')
+            except Exception as exc:
+                errors.append(('loser', exc))
+            finally:
+                done_b.set()
+
+        first = threading.Thread(target=winner)
+        second = threading.Thread(target=loser)
+        try:
+            first.start()
+            self.assertTrue(inserted_a.wait(timeout=self.EVENT_TIMEOUT), errors)
+            second.start()
+            self.assertFalse(
+                done_b.wait(timeout=self.BLOCK_PROOF_SECONDS),
+                'Loser completed while the winner held its transaction open')
+            release_a.set()
+            self.assertTrue(done_b.wait(timeout=self.EVENT_TIMEOUT), errors)
+        finally:
+            release_a.set()
+            for worker in (first, second):
+                if worker.ident is not None:
+                    worker.join(timeout=self.EVENT_TIMEOUT)
+            with registry.cursor() as cr:
+                cr.execute(
+                    "DELETE FROM mail_activity WHERE res_model = 'meta.health.alert' "
+                    "AND res_id IN (SELECT id FROM meta_health_alert WHERE account_id = %s)",
+                    (account_id,))
+                cr.execute('DELETE FROM meta_health_alert WHERE account_id = %s', (account_id,))
+                cr.execute('DELETE FROM meta_account WHERE id = %s', (account_id,))
+                cr.execute('DELETE FROM res_company_users_rel WHERE user_id = %s', (manager_id,))
+                cr.execute(
+                    'DELETE FROM res_users WHERE id = %s RETURNING partner_id', (manager_id,))
+                partner_row = cr.fetchone()
+                if partner_row:
+                    cr.execute('DELETE FROM res_partner WHERE id = %s', (partner_row[0],))
+                cr.commit()
+        self.assertFalse(errors, errors)
+
+        # Verified through a fresh cursor (the test transaction's snapshot
+        # cannot see the workers' committed rows): exactly ONE alert row
+        # for the key, the loser REUSED the winner's row, and exactly ONE
+        # health activity — created by the winning transaction only.
+        with registry.cursor() as cr:
+            cr.execute(
+                'SELECT COUNT(*), MIN(id), MAX(id) FROM meta_health_alert '
+                'WHERE account_id = %s', (account_id,))
+            count, min_id, max_id = cr.fetchone()
+            self.assertEqual(count, 1)
+            self.assertEqual(min_id, max_id)
+            cr.execute(
+                'SELECT COUNT(*) FROM mail_activity WHERE res_model = %s '
+                'AND res_id = %s AND activity_type_id = %s',
+                ('meta.health.alert', min_id, activity_type_id))
+            self.assertEqual(cr.fetchone()[0], 1)
+        self.assertEqual(results['winner_alert'], results['loser_alert'])
