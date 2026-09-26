@@ -1,8 +1,9 @@
 import logging
 import uuid
+from datetime import timedelta
 import requests
 from odoo import api, fields, models, _
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 
 _logger = logging.getLogger(__name__)
 
@@ -51,6 +52,14 @@ class MetaAccount(models.Model):
     diagnostic_checked_at = fields.Datetime(readonly=True, copy=False)
     app_mode = fields.Char(readonly=True, copy=False,
                            default='Unknown — check the Meta App Dashboard')
+    health_monitor_enabled = fields.Boolean(default=False, copy=False)
+    health_owner_id = fields.Many2one('res.users', copy=False)
+    health_due_minutes = fields.Integer(default=15)
+    health_silence_minutes = fields.Integer(default=0,
+                                            help='Zero disables expected-traffic warnings.')
+    health_token_warning_days = fields.Integer(default=7)
+    health_enabled_at = fields.Datetime(copy=False, readonly=True)
+    health_checked_at = fields.Datetime(copy=False, readonly=True)
 
 
     @api.depends('webhook_key')
@@ -202,6 +211,121 @@ class MetaAccount(models.Model):
                 'sticky': False,
             },
         }
+
+    @api.constrains('health_owner_id', 'company_id', 'health_due_minutes',
+                    'health_silence_minutes', 'health_token_warning_days')
+    def _check_health_settings(self):
+        for account in self:
+            if (account.health_due_minutes < 1 or account.health_silence_minutes < 0
+                    or account.health_token_warning_days < 0):
+                raise ValidationError(_('Invalid Meta health monitoring threshold.'))
+            owner = account.health_owner_id
+            if owner and not account._health_owner_eligible(owner):
+                raise ValidationError(_('The health owner must be an active internal Meta manager with access to this company.'))
+
+    def _health_owner_eligible(self, owner=None):
+        self.ensure_one()
+        owner = owner or self.health_owner_id
+        return bool(owner and owner.active and not owner.share
+                    and self.company_id in owner.company_ids
+                    and owner.with_user(owner).has_group(
+                        'crm_meta_lead_ads.group_meta_lead_manager'))
+
+    def write(self, vals):
+        if 'health_monitor_enabled' in vals and 'health_enabled_at' not in vals:
+            # An explicit false disables the silence clock. A later opt-in
+            # starts a new observation window instead of using old history.
+            for rec in self:
+                if bool(vals['health_monitor_enabled']) != bool(rec.health_monitor_enabled):
+                    super(MetaAccount, rec).write({
+                        'health_enabled_at': fields.Datetime.now()
+                        if vals['health_monitor_enabled'] else False,
+                    })
+        return super().write(vals)
+
+    def _health_snapshot(self, now=None):
+        """Local, account/company-scoped numbers and static issue codes only."""
+        self.ensure_one()
+        now = fields.Datetime.to_datetime(now or fields.Datetime.now())
+        result = {
+            'level': 'disabled' if not self.health_monitor_enabled else 'unknown',
+            'issues': [], 'checks': [], 'due_queue_count': 0,
+            'oldest_due_minutes': 0, 'failed_queue_count': 0,
+            'ambiguous_queue_count': 0, 'failed_outbound_24h_count': 0,
+            'page_count': 0,
+        }
+        if not self.health_monitor_enabled:
+            return result
+        pages = self.env['meta.page'].sudo().search([
+            ('account_id', '=', self.id), ('company_id', '=', self.company_id.id),
+            ('active', '=', True), ('sync_enabled', '=', True),
+        ])
+        result['page_count'] = len(pages)
+        page_ids = pages.ids
+        checks = result['checks']
+
+        def issue(code, page=False, count=1, severity='warning'):
+            checks.append({'code': code, 'page_id': page.id if page else False,
+                           'count': count, 'severity': severity})
+            if code not in result['issues']:
+                result['issues'].append(code)
+
+        if self.state in ('error', 'disconnected'):
+            issue('account_disconnected', severity='error')
+        expiry = self.sudo().token_expires_at
+        if expiry:
+            if expiry <= now:
+                issue('token_expired', severity='error')
+            elif expiry <= now + timedelta(days=self.health_token_warning_days):
+                issue('token_expiring')
+        if self.diagnostic_checked_at and self.diagnostic_checked_at < now - timedelta(hours=24):
+            issue('diagnostic_stale')
+        company_scope = [('company_id', '=', self.company_id.id),
+                         ('page_id', 'in', page_ids)]
+        if page_ids:
+            Queue = self.env['meta.lead.queue'].sudo()
+            due = Queue.search(company_scope + ['|', '&',
+                ('state', 'in', ('pending', 'retry')), '|',
+                ('next_retry_at', '=', False), ('next_retry_at', '<=', now),
+                ('state', '=', 'processing')])
+            result['due_queue_count'] = len(due)
+            if due:
+                oldest = min(due.mapped('received_at'))
+                result['oldest_due_minutes'] = max(0, int((now - oldest).total_seconds() / 60))
+                if result['oldest_due_minutes'] >= self.health_due_minutes:
+                    issue('queue_overdue', count=len(due))
+            for state, key, code in (
+                    ('failed', 'failed_queue_count', 'queue_failed'),
+                    ('ambiguous', 'ambiguous_queue_count', 'queue_ambiguous')):
+                count = Queue.search_count(company_scope + [('state', '=', state)])
+                result[key] = count
+                if count:
+                    issue(code, count=count, severity='error')
+            result['failed_outbound_24h_count'] = self.env['meta.message'].sudo().search_count(
+                company_scope + [('direction', '=', 'outbound'),
+                                 ('send_state', '=', 'failed'),
+                                 ('received_at', '>=', now - timedelta(hours=24)),
+                                 ('received_at', '<=', now)])
+            if result['failed_outbound_24h_count']:
+                issue('outbound_failed', count=result['failed_outbound_24h_count'])
+        for page in pages:
+            checked = page.subscription_checked_at
+            if checked and checked < now - timedelta(hours=24):
+                issue('subscription_stale', page)
+            elif checked and page.subscription_status in ('failed', 'incomplete'):
+                issue('subscription_' + page.subscription_status, page)
+            if self.health_silence_minutes:
+                baseline = page.last_live_webhook_at or self.health_enabled_at
+                if baseline and baseline <= now - timedelta(minutes=self.health_silence_minutes):
+                    issue('webhook_silence', page)
+        if any(item['severity'] == 'error' for item in checks):
+            result['level'] = 'error'
+        elif checks:
+            result['level'] = 'warning'
+        elif page_ids and self.diagnostic_status == 'success' and pages.filtered(
+                lambda p: p.last_live_webhook_at):
+            result['level'] = 'ok'
+        return result
 
     def action_sync_all_meta_data(self):
         """Create (or reopen) the single active full-sync run for this

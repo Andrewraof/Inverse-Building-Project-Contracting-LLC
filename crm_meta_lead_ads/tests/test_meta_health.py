@@ -5,7 +5,7 @@ from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from odoo import fields
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 from odoo.tests.common import TransactionCase
 
 
@@ -310,3 +310,38 @@ class TestMetaHealthSnapshot(TransactionCase):
         self.assertIn('webhook_silence', self.account._health_snapshot(now)['issues'])
         self.page.last_live_webhook_at = now - timedelta(minutes=10)
         self.assertNotIn('webhook_silence', self.account._health_snapshot(now)['issues'])
+
+    def test_archived_page_and_other_company_are_excluded(self):
+        now = fields.Datetime.now()
+        old = now - timedelta(hours=1)
+        foreign = self.env['res.company'].create({'name': 'Health Foreign Company'})
+        foreign_account = self.env['meta.account'].create({
+            'name': 'Foreign Account', 'company_id': foreign.id,
+            'app_id': 'foreign-health-app', 'app_secret': 'foreign-secret',
+        })
+        foreign_page = self.env['meta.page'].with_company(foreign).create({
+            'name': 'Foreign Page', 'company_id': foreign.id,
+            'account_id': foreign_account.id, 'meta_page_id': 'foreign-page',
+            'page_access_token': 'foreign-token',
+        })
+        self._queue(foreign_page, 'foreign-old', 'pending', old)
+        self._queue(self.page, 'archived-old', 'pending', old)
+        self.page.active = False
+        self.account.health_monitor_enabled = True
+        snap = self.account._health_snapshot(now)
+        self.assertEqual(snap['page_count'], 0)
+        self.assertEqual(snap['due_queue_count'], 0)
+
+    def test_owner_requires_active_internal_manager_with_company_access(self):
+        group = self.env.ref('crm_meta_lead_ads.group_meta_lead_manager')
+        user = self.env['res.users'].create({
+            'name': 'Health Manager', 'login': 'health_manager_snapshot',
+            'company_id': self.env.company.id,
+            'company_ids': [(6, 0, [self.env.company.id])],
+            'group_ids': [(6, 0, [group.id])],
+        })
+        self.account.health_owner_id = user
+        user.active = False
+        self.assertFalse(self.account._health_owner_eligible())
+        with self.assertRaises(ValidationError):
+            self.account._check_health_settings()
