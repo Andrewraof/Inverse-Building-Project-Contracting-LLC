@@ -83,9 +83,13 @@ class MetaHealthBase(TransactionCase):
         })
 
     def _make_manager(self, login='health_manager', companies=None):
-        return self._make_user(
+        manager = self._make_user(
             login, self.company, 'crm_meta_lead_ads.group_meta_lead_manager',
             companies=companies)
+        # Meta groups carry their own privilege, so they do not imply the
+        # internal-user group; without it the owner would be share=True.
+        manager.group_ids = [(4, self.env.ref('base.group_user').id)]
+        return manager
 
     def _health_activities(self, alert):
         return self.env['mail.activity'].sudo().search([
