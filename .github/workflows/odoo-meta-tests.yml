@@ -86,7 +86,11 @@ jobs:
             --db_host=127.0.0.1 \
             --db_user=odoo \
             --log-level=warn 2>&1 | tee /tmp/base-install.log
-          if grep -E 'ERROR|CRITICAL' /tmp/base-install.log; then
+          # Fail on real Odoo registry/XML/ACL errors only: odoo log lines
+          # look like "2026-09-26 06:54:37,174 1 ERROR <db> <logger>: ...".
+          # Docutils description-render noise ("<string>:14: (ERROR/3) ...")
+          # never matches this shape.
+          if grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]+ [0-9]+ (ERROR|CRITICAL) ' /tmp/base-install.log; then
             echo '::error::Registry/XML/ACL errors during base install'
             exit 1
           fi
@@ -128,7 +132,7 @@ jobs:
             --db_host=127.0.0.1 \
             --db_user=odoo \
             --log-level=warn 2>&1 | tee /tmp/upgrade-1.log
-          if grep -E 'ERROR|CRITICAL' /tmp/upgrade-1.log; then
+          if grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]+ [0-9]+ (ERROR|CRITICAL) ' /tmp/upgrade-1.log; then
             echo '::error::Registry/XML/ACL errors during first upgrade pass'
             exit 1
           fi
@@ -190,7 +194,7 @@ jobs:
             --db_host=127.0.0.1 \
             --db_user=odoo \
             --log-level=warn 2>&1 | tee /tmp/upgrade-2.log
-          if grep -E 'ERROR|CRITICAL' /tmp/upgrade-2.log; then
+          if grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]+ [0-9]+ (ERROR|CRITICAL) ' /tmp/upgrade-2.log; then
             echo '::error::Registry/XML/ACL errors during second upgrade pass'
             exit 1
           fi
