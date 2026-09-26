@@ -338,7 +338,8 @@ class TestMetaHealthSnapshot(TransactionCase):
             'name': 'Health Manager', 'login': 'health_manager_snapshot',
             'company_id': self.env.company.id,
             'company_ids': [(6, 0, [self.env.company.id])],
-            'group_ids': [(6, 0, [group.id])],
+            'group_ids': [(6, 0, [group.id,
+                                   self.env.ref('base.group_user').id])],
         })
         self.account.health_owner_id = user
         user.active = False
