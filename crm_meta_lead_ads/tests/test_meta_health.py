@@ -1,0 +1,663 @@
+import hashlib
+import hmac
+import json
+from datetime import timedelta
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from psycopg2 import IntegrityError
+
+from odoo import fields
+from odoo.exceptions import AccessError, UserError, ValidationError
+from odoo.tests.common import TransactionCase
+
+from odoo.addons.crm_meta_lead_ads.controllers.main import MetaLeadController
+from odoo.addons.crm_meta_lead_ads.models.meta_account import REQUIRED_PERMISSIONS
+from odoo.addons.crm_meta_lead_ads.models.meta_page import REQUIRED_SUBSCRIPTION_FIELDS
+
+REQUEST_PATCH = 'odoo.addons.crm_meta_lead_ads.controllers.main.request'
+
+
+class _FakeHTTPRequest:
+    def __init__(self, raw, signature):
+        self._raw = raw
+        self.headers = {'X-Hub-Signature-256': signature}
+
+    def get_data(self, cache=True):
+        return self._raw
+
+    def get_json(self, silent=True):
+        return json.loads(self._raw.decode('utf-8'))
+
+
+class _FakeRequest:
+    """Minimal stand-in for odoo.http.request as used by _receive_webhook."""
+
+    def __init__(self, env, raw, signature):
+        self.env = env
+        self.httprequest = _FakeHTTPRequest(raw, signature)
+        self.last_response = None
+
+    def make_response(self, body, headers=None, status=200):
+        self.last_response = SimpleNamespace(body=body, status_code=status)
+        return self.last_response
+
+
+class MetaHealthBase(TransactionCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.company = cls.env.company
+        cls.account = cls.env['meta.account'].create({
+            'name': 'Health Meta', 'company_id': cls.company.id,
+            'app_id': 'app', 'app_secret': 'secret',
+        })
+        cls.page = cls.env['meta.page'].create({
+            'name': 'Health Page', 'company_id': cls.company.id,
+            'account_id': cls.account.id, 'meta_page_id': '100',
+            'page_access_token': 'token',
+        })
+        cls.form = cls.env['meta.form'].create({
+            'name': 'Health Form', 'company_id': cls.company.id,
+            'page_id': cls.page.id, 'meta_form_id': '200',
+        })
+        cls.account2 = cls.env['meta.account'].create({
+            'name': 'Health Meta 2', 'company_id': cls.company.id,
+            'app_id': 'app2', 'app_secret': 'secret2',
+        })
+        cls.page2 = cls.env['meta.page'].create({
+            'name': 'Health Page 2', 'company_id': cls.company.id,
+            'account_id': cls.account2.id, 'meta_page_id': '101',
+            'page_access_token': 'token2',
+        })
+        cls.Alert = cls.env['meta.health.alert']
+        cls.activity_type = cls.env.ref('crm_meta_lead_ads.mail_activity_data_meta_health')
+        cls.todo_type = cls.env.ref('mail.mail_activity_data_todo')
+
+    def _make_user(self, login, company, group_xmlid, companies=None):
+        allowed = companies if companies is not None else [company]
+        return self.env['res.users'].create({
+            'name': login, 'login': login, 'company_id': company.id,
+            'company_ids': [(6, 0, [c.id for c in allowed])],
+            'groups_id': [(4, self.env.ref(group_xmlid).id)],
+        })
+
+    def _make_manager(self, login='health_manager', companies=None):
+        return self._make_user(
+            login, self.company, 'crm_meta_lead_ads.group_meta_lead_manager',
+            companies=companies)
+
+    def _health_activities(self, alert):
+        return self.env['mail.activity'].sudo().search([
+            ('res_model', '=', 'meta.health.alert'), ('res_id', '=', alert.id),
+            ('activity_type_id', '=', self.activity_type.id)])
+
+    def _alerts_for(self, account, code=None):
+        domain = [('account_id', '=', account.id)]
+        if code:
+            domain.append(('check_code', '=', code))
+        return self.Alert.sudo().search(domain)
+
+    def _run_monitor(self):
+        self.Alert._cron_health_monitor()
+        self.env['meta.account'].invalidate_model()
+        self.Alert.invalidate_model()
+
+
+class TestMetaHealthEvidence(MetaHealthBase):
+    """Live-receipt evidence: stamped only after signature validation and
+    a page/account match, and never by historical imports or processing
+    outcomes."""
+
+    def _call_webhook(self, secret, payload, account=None, valid=True):
+        raw = json.dumps(payload).encode('utf-8')
+        digest = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest() if valid else '0' * 64
+        fake = _FakeRequest(self.env, raw, 'sha256=' + digest)
+        with patch(REQUEST_PATCH, fake):
+            return MetaLeadController()._receive_webhook(secret, account=account)
+
+    def _leadgen_payload(self, lead_id, page_meta_id='100'):
+        return {'object': 'page', 'entry': [{'id': page_meta_id, 'changes': [{
+            'field': 'leadgen',
+            'value': {'leadgen_id': lead_id, 'page_id': page_meta_id, 'form_id': '200'},
+        }]}]}
+
+    def test_signed_leadgen_updates_only_own_page_and_account(self):
+        response = self._call_webhook('secret', self._leadgen_payload('L-1'), account=self.account)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.page.last_webhook_event_at)
+        self.assertTrue(self.page.last_live_lead_enqueued_at)
+        self.assertFalse(self.page.last_live_message_at)
+        self.assertTrue(self.account.last_webhook_event_at)
+        # Other account/page in the same company stay Unknown.
+        self.assertFalse(self.page2.last_webhook_event_at)
+        self.assertFalse(self.page2.last_live_lead_enqueued_at)
+        self.assertFalse(self.account2.last_webhook_event_at)
+
+    def test_repeated_delivery_does_not_restamp_lead_evidence(self):
+        self._call_webhook('secret', self._leadgen_payload('L-1'), account=self.account)
+        lead_ts = self.page.last_live_lead_enqueued_at
+        self.assertTrue(lead_ts)
+        self._call_webhook('secret', self._leadgen_payload('L-1'), account=self.account)
+        self.assertEqual(self.page.last_live_lead_enqueued_at, lead_ts)
+        self.assertTrue(self.page.last_webhook_event_at >= lead_ts)
+
+    def test_bad_signature_updates_nothing(self):
+        response = self._call_webhook(
+            'secret', self._leadgen_payload('L-2'), account=self.account, valid=False)
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(self.page.last_webhook_event_at)
+        self.assertFalse(self.page.last_live_lead_enqueued_at)
+        self.assertFalse(self.account.last_webhook_event_at)
+        self.assertFalse(self.env['meta.lead.queue'].search([('meta_lead_id', '=', 'L-2')]))
+
+    def test_wrong_account_updates_nothing(self):
+        # Valid signature for account2's secret, but the event belongs to
+        # account1's page: the per-account page match must not find it.
+        response = self._call_webhook(
+            'secret2', self._leadgen_payload('L-3'), account=self.account2)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.page.last_webhook_event_at)
+        self.assertFalse(self.page2.last_webhook_event_at)
+        self.assertFalse(self.account.last_webhook_event_at)
+        self.assertFalse(self.account2.last_webhook_event_at)
+
+    def test_historical_import_does_not_advance_live_evidence(self):
+        Queue = self.env['meta.lead.queue']
+        _unique, _pre, created, _race = Queue._enqueue_poll_leads(
+            self.company, self.page, self.form, ['L-4'])
+        self.assertEqual(created, 1)
+        queued = Queue.search([('meta_lead_id', '=', 'L-4')])
+        self.assertTrue(queued.received_at)
+        # received_at is set by imports too — the live evidence stays empty.
+        self.assertFalse(self.page.last_webhook_event_at)
+        self.assertFalse(self.page.last_live_lead_enqueued_at)
+        self.assertFalse(self.account.last_webhook_event_at)
+
+    def test_processing_failure_does_not_change_receipt_evidence(self):
+        self._call_webhook('secret', self._leadgen_payload('L-5'), account=self.account)
+        event_ts = self.page.last_webhook_event_at
+        lead_ts = self.page.last_live_lead_enqueued_at
+        queued = self.env['meta.lead.queue'].search([('meta_lead_id', '=', 'L-5')])
+        with patch.object(type(queued), '_fetch_lead', side_effect=Exception('boom')):
+            queued.process_one()
+        self.assertIn(queued.state, ('retry', 'failed'))
+        # Receipt (evidence of delivery) is untouched by processing success.
+        self.assertEqual(self.page.last_webhook_event_at, event_ts)
+        self.assertEqual(self.page.last_live_lead_enqueued_at, lead_ts)
+
+    def test_messaging_event_stamps_receipt_and_message(self):
+        payload = {'object': 'page', 'entry': [{'id': '100', 'messaging': [{
+            'sender': {'id': '9001'}, 'recipient': {'id': '100'},
+            'timestamp': 1727500000000,
+            'message': {'mid': 'm-1', 'text': 'hello'}}]}]}
+
+        def profile(method, path, token=None, params=None, **kw):
+            if path == '9001':
+                return {'id': '9001', 'first_name': 'Test', 'last_name': 'Sender'}
+            raise AssertionError('unexpected Graph path %s' % path)
+
+        with patch.object(type(self.account), '_request', side_effect=profile):
+            response = self._call_webhook('secret', payload, account=self.account)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.page.last_webhook_event_at)
+        self.assertTrue(self.page.last_live_message_at)
+        self.assertFalse(self.page.last_live_lead_enqueued_at)
+        self.assertFalse(self.page2.last_webhook_event_at)
+
+    def test_echo_message_stamps_nothing(self):
+        payload = {'object': 'page', 'entry': [{'id': '100', 'messaging': [{
+            'sender': {'id': '100'}, 'recipient': {'id': '9001'},
+            'timestamp': 1727500000000,
+            'message': {'mid': 'm-echo', 'is_echo': True, 'text': 'out'}}]}]}
+        response = self._call_webhook('secret', payload, account=self.account)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.page.last_webhook_event_at)
+        self.assertFalse(self.page.last_live_message_at)
+
+
+class TestMetaHealthMonitor(MetaHealthBase):
+    def test_quiet_traffic_stays_non_error_by_default(self):
+        self.account.write({'health_monitoring_enabled': True})
+        self.assertTrue(self.account.health_monitoring_since)
+        self._run_monitor()
+        self.assertFalse(self._alerts_for(self.account))
+        self.assertTrue(self.account.health_last_check_at)
+        self.assertEqual(self.account.health_level, 'ok')
+
+    def test_disabled_monitoring_produces_no_alerts(self):
+        self.account.write({'state': 'error', 'error_message': 'recorded failure'})
+        self._run_monitor()
+        self.assertFalse(self._alerts_for(self.account))
+        self.assertFalse(self.account.health_last_check_at)
+        self.assertEqual(self.account.health_level, 'disabled')
+
+    def test_silence_clock_starts_at_enablement(self):
+        self.account.write({
+            'health_monitoring_enabled': True, 'health_silence_minutes': 60})
+        self._run_monitor()
+        self.assertFalse(self._alerts_for(self.account, 'silence'))
+        # Move the enablement clock beyond the threshold: now the optional,
+        # explicitly uncertain silence warning appears per page.
+        self.account.health_monitoring_since = fields.Datetime.now() - timedelta(hours=2)
+        self._run_monitor()
+        alert = self._alerts_for(self.account, 'silence')
+        self.assertEqual(len(alert), 1)
+        self.assertEqual(alert.page_id, self.page)
+        self.assertEqual(alert.severity, 'warning')
+        self.assertIn('verify', alert.detail.lower())
+        self.assertIn('not necessarily disconnected', alert.detail)
+        self.assertEqual(self.account.health_level, 'warning')
+
+    def test_due_backlog_scope_and_future_retries(self):
+        self.account.write({'health_monitoring_enabled': True})
+        self.account2.write({'health_monitoring_enabled': True})
+        now = fields.Datetime.now()
+        Queue = self.env['meta.lead.queue']
+        overdue = Queue.enqueue_event(self.company, self.page, 'L-b1', '200', {})
+        overdue.received_at = now - timedelta(hours=1)
+        fresh = Queue.enqueue_event(self.company, self.page, 'L-b2', '200', {})
+        future_retry = Queue.enqueue_event(self.company, self.page, 'L-b3', '200', {})
+        future_retry.write({
+            'state': 'retry', 'received_at': now - timedelta(hours=2),
+            'next_retry_at': now + timedelta(hours=1)})
+        other_account = Queue.enqueue_event(self.company, self.page2, 'L-b4', None, {})
+        other_account.received_at = now - timedelta(hours=2)
+        self._run_monitor()
+        alert = self._alerts_for(self.account, 'queue_backlog')
+        self.assertEqual(len(alert), 1)
+        # Only the overdue record of THIS account counts: the fresh record,
+        # the future-scheduled retry and account2's record are excluded.
+        self.assertEqual(alert.summary_count, 1)
+        alert2 = self._alerts_for(self.account2, 'queue_backlog')
+        self.assertEqual(len(alert2), 1)
+        self.assertEqual(alert2.summary_count, 1)
+        self.assertTrue(fresh.state == 'pending')
+
+    def test_backlog_isolated_across_companies(self):
+        other_company = self.env['res.company'].create({'name': 'Other Health Co'})
+        account3 = self.env['meta.account'].create({
+            'name': 'Health Meta 3', 'company_id': other_company.id,
+            'app_id': 'app3', 'app_secret': 'secret3',
+            'health_monitoring_enabled': True,
+        })
+        page3 = self.env['meta.page'].create({
+            'name': 'Health Page 3', 'company_id': other_company.id,
+            'account_id': account3.id, 'meta_page_id': '102',
+            'page_access_token': 'token3',
+        })
+        now = fields.Datetime.now()
+        own = self.env['meta.lead.queue'].enqueue_event(self.company, self.page, 'L-c1', None, {})
+        own.received_at = now - timedelta(hours=1)
+        other = self.env['meta.lead.queue'].enqueue_event(other_company, page3, 'L-c2', None, {})
+        other.received_at = now - timedelta(hours=1)
+        self.account.write({'health_monitoring_enabled': True})
+        self._run_monitor()
+        self.assertEqual(self._alerts_for(self.account, 'queue_backlog').summary_count, 1)
+        self.assertEqual(self._alerts_for(account3, 'queue_backlog').summary_count, 1)
+        self.assertNotEqual(
+            self._alerts_for(self.account, 'queue_backlog').company_id,
+            self._alerts_for(account3, 'queue_backlog').company_id)
+
+    def test_repeated_passes_single_incident_and_activity(self):
+        owner = self._make_manager()
+        self.account.write({
+            'health_monitoring_enabled': True, 'health_owner_id': owner.id,
+            'state': 'error', 'error_message': 'recorded failure'})
+        self._run_monitor()
+        self._run_monitor()
+        alerts = self._alerts_for(self.account, 'account_error')
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts.state, 'open')
+        activities = self._health_activities(alerts)
+        self.assertEqual(len(activities), 1)
+        self.assertEqual(activities.user_id, owner)
+        self.assertEqual(alerts.notification_state, 'notified')
+        # An unchanged pass posts no chatter and creates no activity.
+        message_count = len(alerts.message_ids)
+        self._run_monitor()
+        self.assertEqual(len(alerts.message_ids), message_count)
+        self.assertEqual(len(self._health_activities(alerts)), 1)
+
+    def test_unique_constraint_blocks_duplicate_keys(self):
+        self.account.write({'health_monitoring_enabled': True, 'state': 'error'})
+        self._run_monitor()
+        alert = self._alerts_for(self.account, 'account_error')
+        with self.assertRaises(IntegrityError):
+            with self.env.cr.savepoint():
+                self.Alert.sudo().create({
+                    'name': 'dup', 'company_id': self.company.id,
+                    'account_id': self.account.id, 'check_code': 'account_error',
+                    'alert_key': alert.alert_key, 'severity': 'error',
+                })
+
+    def test_integrity_error_reuse_path(self):
+        """Sequential proof of the IntegrityError-reuse branch: the
+        competitor row appears between the pre-check and the insert (the
+        pre-check is forced to miss it), the insert collides, and the
+        upsert reuses the competitor instead of failing or duplicating.
+        A true two-transaction race test is deferred — the module's only
+        independent-cursor test (TestMetaDedupConcurrency) covers the
+        advisory-lock pattern, while this upsert relies on the same
+        savepoint/IntegrityError idiom already proven for the queue."""
+        owner = self._make_manager()
+        self.account.write({
+            'health_monitoring_enabled': True, 'health_owner_id': owner.id})
+        existing = self.Alert._upsert_alert(
+            self.account, False, 'account_error', 'error', 'first', 0)
+        Alert = self.Alert
+        real_search = Alert.search
+        calls = {'n': 0}
+
+        def racing_search(_records, domain, *args, **kwargs):
+            calls['n'] += 1
+            if calls['n'] == 1:
+                return Alert.browse()  # competitor not visible in the race window
+            return real_search(domain, *args, **kwargs)
+
+        with patch.object(type(Alert), 'search', side_effect=racing_search, autospec=True), \
+                patch.object(type(Alert), 'create', side_effect=IntegrityError('duplicate key')):
+            reused = Alert._upsert_alert(self.account, False, 'account_error', 'error', 'second', 3)
+        self.assertEqual(reused.id, existing.id)
+        self.assertEqual(reused.summary_count, 3)
+        self.assertEqual(len(self._alerts_for(self.account, 'account_error')), 1)
+
+    def test_acknowledge_recover_recur_and_unrelated_activities(self):
+        owner = self._make_manager()
+        self.account.write({
+            'health_monitoring_enabled': True, 'health_owner_id': owner.id,
+            'state': 'error', 'error_message': 'recorded failure'})
+        self._run_monitor()
+        alert = self._alerts_for(self.account, 'account_error')
+        self.assertEqual(alert.state, 'open')
+        self.assertEqual(len(self._health_activities(alert)), 1)
+        # An unrelated To-Do on the same record and on the account must
+        # never be completed by the health lifecycle.
+        unrelated_alert_todo = self.env['mail.activity'].sudo().create({
+            'activity_type_id': self.todo_type.id,
+            'res_model_id': self.env['ir.model']._get_id('meta.health.alert'),
+            'res_id': alert.id, 'user_id': owner.id, 'summary': 'manual follow-up',
+            'date_deadline': fields.Date.today()})
+        unrelated_account_todo = self.env['mail.activity'].sudo().create({
+            'activity_type_id': self.todo_type.id,
+            'res_model_id': self.env['ir.model']._get_id('meta.account'),
+            'res_id': self.account.id, 'user_id': owner.id, 'summary': 'call admin',
+            'date_deadline': fields.Date.today()})
+        # Acknowledge suppresses reminders for this episode.
+        alert.action_acknowledge()
+        self.assertEqual(alert.state, 'acknowledged')
+        self._run_monitor()
+        self.assertEqual(len(self._health_activities(alert)), 1)
+        self.assertFalse(self._alerts_for(self.account, 'account_error') - alert)
+        # Recovery resolves the incident and completes only its own
+        # dedicated activity.
+        self.account.write({'state': 'connected', 'error_message': False})
+        self._run_monitor()
+        self.assertEqual(alert.state, 'resolved')
+        self.assertTrue(alert.resolved_at)
+        self.assertFalse(self._health_activities(alert))
+        self.assertTrue(unrelated_alert_todo.exists())
+        self.assertTrue(unrelated_account_todo.exists())
+        self.assertEqual(self.account.health_level, 'ok')
+        # A new episode after recovery reopens the same record and may
+        # notify again.
+        self.account.write({'state': 'error', 'error_message': 'recorded failure'})
+        self._run_monitor()
+        self.assertEqual(alert.state, 'open')
+        self.assertEqual(alert.first_seen_at, alert.last_seen_at)
+        self.assertEqual(len(self._health_activities(alert)), 1)
+        self.assertEqual(len(self._alerts_for(self.account, 'account_error')), 1)
+
+    def test_token_expiry_boundaries(self):
+        now = fields.Datetime.now()
+        self.account.write({'health_monitoring_enabled': True})
+        self.account.token_expires_at = now + timedelta(days=30)
+        self._run_monitor()
+        self.assertFalse(self._alerts_for(self.account, 'token_expired'))
+        self.assertFalse(self._alerts_for(self.account, 'token_expiring'))
+        self.account.token_expires_at = now + timedelta(days=3)
+        self._run_monitor()
+        alert = self._alerts_for(self.account, 'token_expiring')
+        self.assertEqual(len(alert), 1)
+        self.assertEqual(alert.severity, 'warning')
+        self.account.token_expires_at = now - timedelta(seconds=1)
+        self._run_monitor()
+        self.assertEqual(self._alerts_for(self.account, 'token_expired').severity, 'error')
+        self.assertFalse(self._alerts_for(self.account, 'token_expiring').filtered(
+            lambda a: a.state != 'resolved'))
+        # Unknown expiry stays unknown: no alerts at all.
+        self.account.token_expires_at = False
+        self._run_monitor()
+        self.assertFalse(self._alerts_for(self.account, 'token_expired').filtered(
+            lambda a: a.state != 'resolved'))
+
+    def test_stale_subscription_check_downgrade(self):
+        now = fields.Datetime.now()
+        self.account.write({'health_monitoring_enabled': True})
+        self.page.write({
+            'subscription_status': 'failed', 'subscription_error': 'not subscribed',
+            'subscription_checked_at': now - timedelta(hours=30)})
+        self._run_monitor()
+        self.assertFalse(self._alerts_for(self.account, 'subscription_failed'))
+        stale = self._alerts_for(self.account, 'subscription_stale')
+        self.assertEqual(len(stale), 1)
+        self.assertEqual(stale.severity, 'warning')
+        # A fresh check asserts the current failure instead.
+        self.page.subscription_checked_at = now - timedelta(hours=1)
+        self._run_monitor()
+        fresh = self._alerts_for(self.account, 'subscription_failed')
+        self.assertEqual(len(fresh), 1)
+        self.assertEqual(fresh.severity, 'error')
+        self.assertEqual(stale.state, 'resolved')
+
+    def test_archived_pages_excluded_from_page_checks(self):
+        self.account.write({'health_monitoring_enabled': True})
+        self.page.write({
+            'active': False, 'sync_enabled': False, 'page_access_token': False,
+            'subscription_status': 'failed', 'subscription_error': 'not subscribed',
+            'subscription_checked_at': fields.Datetime.now()})
+        self._run_monitor()
+        self.assertFalse(self._alerts_for(self.account, 'subscription_failed'))
+        self.assertFalse(self._alerts_for(self.account, 'subscription_stale'))
+
+    def test_owner_validation(self):
+        manager = self._make_manager()
+        self.account.health_owner_id = manager.id
+        non_manager = self._make_user(
+            'health_plain_user', self.company, 'crm_meta_lead_ads.group_meta_lead_user')
+        with self.assertRaises(ValidationError):
+            self.account.health_owner_id = non_manager.id
+        manager.active = False
+        with self.assertRaises(ValidationError):
+            self.account.health_owner_id = manager.id
+        other_company = self.env['res.company'].create({'name': 'Owner Other Co'})
+        outsider = self._make_manager(login='health_outsider', companies=[other_company])
+        outsider.company_id = other_company.id
+        with self.assertRaises(ValidationError):
+            self.account.health_owner_id = outsider.id
+
+    def test_threshold_validation(self):
+        with self.assertRaises(ValidationError):
+            self.account.health_backlog_threshold_minutes = 0
+        with self.assertRaises(ValidationError):
+            self.account.health_silence_minutes = -5
+        with self.assertRaises(ValidationError):
+            self.account.health_token_expiry_warn_days = -1
+
+    def test_ineligible_owner_keeps_alert_visible_without_notifying(self):
+        owner = self._make_manager()
+        self.account.write({
+            'health_monitoring_enabled': True, 'health_owner_id': owner.id,
+            'state': 'error', 'error_message': 'recorded failure'})
+        # Access changed after configuration: the owner was deactivated.
+        owner.active = False
+        self._run_monitor()
+        alert = self._alerts_for(self.account, 'account_error')
+        self.assertEqual(len(alert), 1)
+        self.assertEqual(alert.state, 'open')
+        self.assertEqual(alert.notification_state, 'no_recipient')
+        self.assertFalse(self._health_activities(alert))
+
+    def test_secret_marker_never_reaches_alert_or_activity(self):
+        marker = 'tok-HEALTH-MARKER-1'
+        owner = self._make_manager()
+        self.account.write({
+            'health_monitoring_enabled': True, 'health_owner_id': owner.id,
+            'user_access_token': marker, 'state': 'error'})
+        # Plant a raw (unsanitized) legacy error string holding the secret,
+        # as an old record might contain it.
+        self.env.cr.execute(
+            'UPDATE meta_account SET error_message = %s WHERE id = %s',
+            ('Graph error 190: invalid token %s supplied' % marker, self.account.id))
+        self.account.invalidate_recordset(['error_message'])
+        self._run_monitor()
+        alert = self._alerts_for(self.account, 'account_error')
+        self.assertEqual(len(alert), 1)
+        self.assertNotIn(marker, alert.detail or '')
+        for activity in self._health_activities(alert):
+            self.assertNotIn(marker, activity.summary or '')
+            self.assertNotIn(marker, activity.note or '')
+        for message in alert.message_ids:
+            self.assertNotIn(marker, message.body or '')
+
+
+class TestMetaHealthDiagnostics(MetaHealthBase):
+    """Diagnostics outcome aggregation: failures can never look like
+    success, and empty permission evidence stays unknown."""
+
+    def _diag_handler(self, behavior):
+        def handler(method, path, token=None, params=None, **kw):
+            if path == 'me':
+                if behavior.get('connection_fail'):
+                    raise UserError('Connection error for url: /me (timeout)')
+                return {'id': '1', 'name': 'Meta User'}
+            if path == 'me/permissions':
+                if behavior.get('perms_raise'):
+                    raise Exception('permissions endpoint unavailable')
+                if behavior.get('perms_empty'):
+                    return {'data': []}
+                return {'data': [{'name': p, 'status': 'granted'}
+                                 for p in REQUIRED_PERMISSIONS]}
+            if path.endswith('/subscribed_apps'):
+                if behavior.get('subscription_missing'):
+                    return {'data': [{'id': 'other-app', 'subscribed_fields': []}]}
+                return {'data': [{
+                    'id': self.account.app_id,
+                    'subscribed_fields': list(REQUIRED_SUBSCRIPTION_FIELDS)}]}
+            raise AssertionError('unexpected Graph path %s' % path)
+        return handler
+
+    def _run_diagnostics(self, behavior):
+        self.account.user_access_token = 'usertok'
+        with patch.object(type(self.account), '_request',
+                          side_effect=self._diag_handler(behavior)):
+            return self.account.action_run_diagnostics()
+
+    def test_failed_connection_cannot_be_success(self):
+        result = self._run_diagnostics({'connection_fail': True})
+        self.assertEqual(result['params']['type'], 'danger')
+        self.assertEqual(self.account.last_diagnostic_outcome, 'failure')
+        self.assertTrue(self.account.last_diagnostic_at)
+        self.assertEqual(self.account.state, 'error')
+
+    def test_failed_subscription_cannot_be_success(self):
+        result = self._run_diagnostics({'subscription_missing': True})
+        self.assertEqual(result['params']['type'], 'danger')
+        self.assertEqual(self.account.last_diagnostic_outcome, 'failure')
+        self.assertEqual(self.page.subscription_status, 'failed')
+
+    def test_empty_permissions_stay_unknown_not_denial(self):
+        result = self._run_diagnostics({'perms_empty': True})
+        # Empty evidence is not a denial and never a failure banner.
+        self.assertNotEqual(result['params']['type'], 'danger')
+        self.assertNotEqual(self.account.last_diagnostic_outcome, 'failure')
+        self.assertFalse(self.account.missing_permissions)
+        self.assertFalse(self.account.granted_permissions)
+        self.assertFalse(self.account.permissions_checked_at)
+
+    def test_full_pass_is_success(self):
+        result = self._run_diagnostics({})
+        self.assertEqual(result['params']['type'], 'success')
+        self.assertEqual(self.account.last_diagnostic_outcome, 'success')
+
+    def test_permission_check_failure_keeps_stale_evidence(self):
+        checked_at = fields.Datetime.now() - timedelta(days=1)
+        self.account.write({
+            'granted_permissions': 'leads_retrieval',
+            'missing_permissions': 'pages_messaging',
+            'permissions_checked_at': checked_at,
+        })
+        result = self._run_diagnostics({'perms_raise': True})
+        self.assertNotEqual(result['params']['type'], 'danger')
+        # A failed refresh must not display old permissions as freshly
+        # verified: stored values and their check time stay untouched.
+        self.assertEqual(self.account.granted_permissions, 'leads_retrieval')
+        self.assertEqual(self.account.permissions_checked_at, checked_at)
+        self.assertNotEqual(self.account.last_diagnostic_outcome, 'failure')
+
+
+class TestMetaHealthAccess(MetaHealthBase):
+    def test_user_cannot_act_on_alerts(self):
+        self.account.write({'health_monitoring_enabled': True, 'state': 'error'})
+        self._run_monitor()
+        alert = self._alerts_for(self.account, 'account_error')
+        user = self._make_user(
+            'health_reader', self.company, 'crm_meta_lead_ads.group_meta_lead_user')
+        # Read-only for plain users (counts carry no PII), never write.
+        self.assertTrue(alert.with_user(user).read(['state']))
+        with self.assertRaises(AccessError):
+            alert.with_user(user).write({'state': 'acknowledged'})
+        with self.assertRaises(UserError):
+            alert.with_user(user).action_acknowledge()
+        with self.assertRaises(AccessError):
+            self.env['meta.health.alert'].with_user(user).create({
+                'name': 'x', 'company_id': self.company.id,
+                'account_id': self.account.id, 'check_code': 'account_error',
+                'alert_key': 'x', 'severity': 'error'})
+
+    def test_health_actions_require_manager_group(self):
+        user = self._make_user(
+            'health_action_user', self.company, 'crm_meta_lead_ads.group_meta_lead_user')
+        with self.assertRaises(UserError):
+            self.account.with_user(user).action_health_check_now()
+        with self.assertRaises(UserError):
+            self.account.with_user(user).action_health_open_queue()
+        manager = self._make_manager(login='health_action_manager')
+        result = self.account.with_user(manager).action_health_check_now()
+        self.assertEqual(result['params']['type'], 'success')
+        action = self.account.with_user(manager).action_health_open_queue()
+        self.assertEqual(action['res_model'], 'meta.lead.queue')
+        self.assertIn(('page_id', 'in', self.account._health_pages().ids), action['domain'])
+
+    def test_user_reads_aggregate_counts_without_error(self):
+        user = self._make_user(
+            'health_count_user', self.company, 'crm_meta_lead_ads.group_meta_lead_user')
+        account_as_user = self.account.with_user(user)
+        # Aggregate-only metrics must not raise for plain users and expose
+        # no record content (numbers/timestamps only).
+        self.assertIsInstance(account_as_user.health_due_backlog_count, int)
+        self.assertIsInstance(account_as_user.health_failed_ambiguous_count, int)
+        self.assertIn(account_as_user.health_level,
+                      ('disabled', 'unknown', 'ok', 'warning', 'error'))
+
+    def test_multi_company_alert_isolation(self):
+        other_company = self.env['res.company'].create({'name': 'Access Other Co'})
+        account3 = self.env['meta.account'].create({
+            'name': 'Access Meta 3', 'company_id': other_company.id,
+            'app_id': 'app3', 'app_secret': 'secret3',
+            'health_monitoring_enabled': True, 'state': 'error',
+        })
+        self._run_monitor()
+        alert3 = self._alerts_for(account3, 'account_error')
+        self.assertEqual(len(alert3), 1)
+        manager_a = self._make_manager(login='health_mgr_a')
+        self.assertEqual(
+            self.env['meta.health.alert'].with_user(manager_a).search_count(
+                [('company_id', '=', other_company.id)]), 0)
+        manager_all = self._make_manager(
+            login='health_mgr_all', companies=[self.company, other_company])
+        manager_all.company_id = self.company.id
+        found = self.env['meta.health.alert'].with_user(manager_all).with_context(
+            allowed_company_ids=[self.company.id, other_company.id]).search_count(
+            [('company_id', '=', other_company.id)])
+        self.assertEqual(found, 1)
