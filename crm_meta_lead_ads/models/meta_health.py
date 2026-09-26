@@ -531,11 +531,14 @@ class MetaAccountHealth(models.Model):
 
     def action_health_check_now(self):
         """Run the local monitoring assessment now (manager only). Local
-        data only — this never calls Meta."""
+        data only — this never calls Meta. The sudo below is safe only
+        because the guard above already proved company membership; the
+        assessment itself is local-data-only and company-scoped, and it
+        must read admin-restricted fields (e.g. token_expires_at)."""
         self._check_health_manager_access()
         Alert = self.env['meta.health.alert']
         for account in self:
-            Alert._assess_account(account)
+            Alert._assess_account(account.sudo())
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',

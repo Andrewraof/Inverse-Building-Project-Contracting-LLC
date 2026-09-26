@@ -100,7 +100,7 @@ jobs:
           docker run --rm -i --network host \
             -v "$PWD/.upgrade-base/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
             -e HOST=127.0.0.1 -e USER=odoo \
-            odoo:19.0 shell -d meta_upgrade_test \
+            odoo:19.0 odoo shell -d meta_upgrade_test \
             --db_host=127.0.0.1 --db_user=odoo --log-level=error <<'PYEOF' | tee /tmp/fixture.log
           company = env.company
           acc = env['meta.account'].create({'name': 'Upgrade Base', 'company_id': company.id, 'app_id': 'upg-app', 'app_secret': 'upg-secret'})
@@ -142,7 +142,7 @@ jobs:
           docker run --rm -i --network host \
             -v "$PWD/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
             -e HOST=127.0.0.1 -e USER=odoo \
-            odoo:19.0 shell -d meta_upgrade_test \
+            odoo:19.0 odoo shell -d meta_upgrade_test \
             --db_host=127.0.0.1 --db_user=odoo --log-level=error <<'PYEOF' | tee /tmp/verify-1.log
           try:
               acc = env['meta.account'].search([('name', '=', 'Upgrade Base')])
@@ -204,7 +204,7 @@ jobs:
           docker run --rm -i --network host \
             -v "$PWD/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
             -e HOST=127.0.0.1 -e USER=odoo \
-            odoo:19.0 shell -d meta_upgrade_test \
+            odoo:19.0 odoo shell -d meta_upgrade_test \
             --db_host=127.0.0.1 --db_user=odoo --log-level=error <<'PYEOF' | tee /tmp/verify-2.log
           try:
               acc = env['meta.account'].search([('name', '=', 'Upgrade Base')])
