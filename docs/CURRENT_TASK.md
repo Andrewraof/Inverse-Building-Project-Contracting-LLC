@@ -1,120 +1,99 @@
-# CURRENT_TASK — Batch 2: Complete Meta CRM Operations Suite
+# CURRENT_TASK — Batch 3A: Meta Connector Health Dashboard & Alerts
 
-الحالة: Batch 2 مع تحسينات ربط المحادثة بالـCRM على فرع مراجعة مستقل؛
-اجتازت اختبارات Odoo 19 على قاعدة مؤقتة في GitHub Actions، ولم تُنشر بعد
-على الإنتاج. لا توجد بيئة Odoo محلية، ولم تُشغَّل الاختبارات على قاعدة
-`inverse_elite` الإنتاجية. آخر تشغيل ناجح: `36176476010`، **219 اختبارًا
-بلا فشل أو خطأ**، بما فيها اختبار تزامن الربط بمعاملتين.
+الحالة: منفَّذ على فرع `batch3a-health` (متفرع من `origin/main` عند
+`47574a5` بعد PR #10)، بانتظار المراجعة واختبارات Odoo 19 في CI.
+لا توجد بيئة Odoo محلية؛ لم تُشغَّل اختبارات Odoo الفعلية بعد ولم يُنشر
+شيء على الإنتاج. التصميم المعتمد: `docs/BATCH3_HEALTH_DESIGN.md`.
+الإصدار: `19.0.5.0.0`.
 
-## إصلاحات مراجعة 2026-09-25
+## ما بُني (لم يُكسر شيء قائم)
 
-- إضافة استيراد `api` المفقود في `meta_form.py`، وهو خطأ تحميل Registry
-  لا يكشفه `py_compile`.
-- إزالة `decoration-*` من جذر قائمة Sync Runs لتبسيطها. مخطط Odoo 19
-  الرسمي يقبل هذه الخصائص، لذا لم تكن وحدها سبب فشل مؤكد.
-- إبقاء Sync Run في حالة running حتى تنتهي كل سجلات Queue التابعة له؛
-  المعالجة على دفعات 20، مع إعادة احتساب نتائج التشغيل من الحالات النهائية
-  حتى لا تتكرر العدادات عند الاستئناف أو معالجة الـcron العام.
-- إعادة احتساب آخر رسالة وآخر رسالة واردة وأول رد من الرسائل الفعلية
-  بعد السحب التاريخي وفي ترحيل النسخة والرد الحي. أول رد هو أول outbound
-  ناجح بعد أول inbound؛ الردود الفاشلة لا تغيّر معاينة المحادثة.
-- منع Routing Rule من الإشارة إلى صفحة أو نموذج أو فريق أو مستخدم خارج
-  شركتها. أُضيفت اختبارات رجوع لهذه الحالات ولأكثر من 20 Lead.
-- الفحوصات الثابتة واختبارات الريبو لا تغني عن تشغيل اختبارات Odoo
-  والتحقق من Views ضد RNG على بيئة Odoo 19 قبل النشر.
+1. **شاشة الصحة**: قائمة CRM > Meta Lead Ads > Health (مدير فقط) بعرض
+   قائمة وتفصيل للحسابات: حالة الحساب، آخر تشخيص (وقت/نتيجة)، حالة
+   اشتراك كل صفحة نشطة وحداثة فحصها، أدلة الاستلام الحي، تراكم الطابور
+   المستحق وأقدم عمر مستحق وعدادات failed/ambiguous، فشل الصادر خلال
+   24 ساعة، نتيجة ووقت آخر مزامنة، حالة المراقبة ووقت آخر فحص. استعلامات
+   تجميعية محلية فقط — فتح الشاشة لا يستدعي Meta، ولا تعرض نصوص رسائل
+   أو توكنات أو PSID أو بيانات اتصال. مستويات الصحة: Disabled / Unknown /
+   No detected issues / Warning / Error. الصفحة الهادئة لا تُوصم أبدًا
+   بأنها غير متصلة.
+2. **دلالات الدليل (receipt ≠ success)**: حقول `last_webhook_event_at` /
+   `last_live_message_at` / `last_live_lead_enqueued_at` على الصفحة (و
+   `last_webhook_event_at` على الحساب) تُختم فقط بعد تحقق توقيع
+   HMAC-SHA256 ومطابقة الصفحة تحت الحساب الصحيح في الـwebhook. التوقيع
+   السيئ/الحساب الخاطئ/الاستيراد التاريخي/فشل المعالجة لا يقدّم الدليل.
+   لا backfill من `received_at` — السجلات القديمة تبدأ Unknown.
+3. **المراقبة والتنبيهات**: cron كل 5 دقائق، تقييم محلي فقط (بلا Graph
+   API)، دفعة محدودة (25 حسابًا) بترتيب الأقدم فحصًا، وsavepoint لكل
+   حساب. المراقبة معطّلة افتراضيًا (بما فيه بعد الترقية). إعدادات على
+   الحساب: التفعيل، المالك (مدير Meta داخلي نشط له وصول للشركة — يُتحقق
+   عند الإعداد وقبل كل إشعار؛ عدم الأهلية يبقي التنبيه ظاهرًا مع
+   «no eligible recipient»)، عتبة التراكم (15 دقيقة)، فترة صمت اختيارية
+   (0 = معطّلة، وساعتها تبدأ من لحظة التفعيل وصياغتها غير مؤكدة صراحةً)،
+   وأيام تحذير انتهاء التوكن (7). شروط التنبيه مطابقة للتصميم حرفيًا
+   بما فيها تخفيض فحص الاشتراك الأقدم من 24 ساعة إلى تحذير stale،
+   واستثناء مواعيد إعادة المحاولة المستقبلية، وتوسيم فشل الصادر كفشل
+   مُسجَّل لا كدليل عدم تسليم.
+4. **`meta.health.alert`**: سجل واحد لكل (حساب/صفحة/كود فحص) بمفتاح
+   `alert_key` فريد وقيد UNIQUE، وحالات open/acknowledged/resolved مع
+   first/last seen ووقت الحل وملخص رقمي وتفصيل منقّى. Upsert آمن
+   تزامنيًا بنمط savepoint/IntegrityError المعتمد في الموديول؛ إعادة
+   الحدوث بعد الحل تفتح نفس السجل كحلقة جديدة وتُشعر مجددًا؛ الـacknowledge
+   يكتم تذكيرات الحلقة؛ الاسترداد يحل السجل ويُكمل نشاطه المخصص فقط.
+5. **نوع نشاط مخصص «Meta Health»** (`data/meta_health_data.xml`,
+   noupdate): نشاط واحد مفتوح كحد أقصى لكل حادثة؛ مرور الـcron بلا
+   تغيير لا ينشر chatter ولا ينشئ أنشطة؛ لا اشتراك لجهات خارجية؛ لا
+   إكمال لأي To-Do غير ذي صلة (مغطى باختبار).
+6. **تصحيح نتيجة Diagnostics**: `action_run_diagnostics` تجمّع نتائج
+   الاتصال/الصلاحيات/الاشتراكات في نتيجة صريحة success/warning/failure/
+   unknown مخزنة في `last_diagnostic_at/outcome`. فشل الاتصال أو
+   الاشتراك لا يمكن أن يظهر كنجاح؛ نتيجة الصلاحيات الفارغة تبقى مجهولة
+   وليست إنكارًا؛ فشل جلب الصلاحيات لا يعرض القيم القديمة كمتحقق منها
+   حديثًا؛ لا استثناءات تُسقط النتائج المسجلة.
 
-الإصدار: `19.0.4.1.0`. التصميم التفصيلي: `docs/BATCH2_DESIGN.md`.
+## حدود محفوظة
 
-## ما بُني على الموجود (لم يُكسر)
-
-كل سلوك Batch 1A/1A.1/1B/1B.1 وMeta Inbox قائم كما هو: منع التكرار
-المحافظ، التطبيع، مزامنة النماذج الآمنة للمؤرشف، Recovery Polling،
-الـAttribution، عزل الشركات، وتنقية الأسرار.
-
-## المزايا الجديدة
-
-1. **`meta.sync.run` + `meta.sync.run.line`**: زر Sync All Meta Data
-   يشغّل مهمة خلفية قابلة للاستئناف (work_state JSON + cursors)، خطوات
-   connection/pages/forms/leads/conversations/messages، حالات
-   draft/running/completed/completed_warnings/failed/cancelled، منع
-   مهمتين نشطتين لنفس الحساب، cron tick بحد زمني 45 ثانية، تقرير أعداد
-   فقط بلا Tokens/PII. الخطوة ذات الصلاحية المفقودة تُتخطى بتحذير ولا
-   تُسقط المهمة.
-2. **Diagnostics** على حساب Meta: الصلاحيات الممنوحة/المفقودة، آخر فحص،
-   آخر خطأ منقّى، وتوثيق أن CPL يتطلب `ads_read`.
-3. **`meta.routing.rule`**: شروط (page/form/campaign/adset/ad/platform/
-   city/service/keyword) ونتيجة (team/user/priority/tags/lead_type/
-   activity)، أول قاعدة بالترتيب تفوز، `override_manual=False`
-   افتراضيًا فلا يُستبدل التعيين اليدوي، Preview read-only، قاعدة شركة.
-4. **Wizard سحب تاريخي** `meta.lead.backfill.wizard`: نطاق تاريخي وحدود
-   أمان، ينشئ run من نوع leads.
-5. **Queue Actions**: Retry Selected / Retry All Failed / Reset to
-   Pending (Manager فقط) / Link Selected Lead (ربط ambiguous بسجل
-   موجود مع identity من نوع manual)، `processing_seconds` محسوبة،
-   كتم إشعارات النجاح عبر `meta_queue_notify`.
-6. **Inbox**: مزامنة رسائل تاريخية عبر Graph API (upsert بالـMeta
-   message id، attachments metadata فقط بلا تحميل — SSRF آمن)،
-   `last_inbound_at` + `first_response_seconds` + `first_response_at`، حالة `pending` بعد
-   الرد الناجح، فلتر Needs Response > 24h، زر Convert to Opportunity،
-   routing hook للمحادثات.
-7. **كشف الحقول غير المربوطة** على `meta.form` مع بانر تحذير.
-8. **تقارير Community فقط**: pivot/graph للـQueue وليدز Meta
-   (page/campaign/organic)، المحادثات (unread + متوسط أول رد لكل
-   موظف) وعدد المحادثات المرتبطة بليد، وFunnel (lead → opportunity → won/lost).
-9. **إعدادات**: `meta_sync_notify` و`meta_queue_notify`.
-10. **ربط المحادثة بليد قائم**: Wizard يتحقق من صلاحيات CRM والشركة
-    وعدم وجود ربط آخر؛ الإنشاء والتعديل المباشر من جانبي المحادثة والليد
-    يمران بنفس الفحوصات، وحقل الليد في الفورم للقراءة فقط.
-
-## Migration 19.0.4.0.0
-
-Backfill لـ`last_inbound_at` و`first_response_seconds` على المحادثات
-القائمة — batched وidempotent وأعداد فقط، بلا حذف أو إعادة كتابة
-بيانات المستخدم. Rollback = revert للـcommit؛ الأعمدة الجديدة nullable.
-
-## Migration 19.0.4.1.0
-
-Backfill مستقل لـ`first_response_at` حتى لقواعد رُقّيت سابقًا إلى
-`19.0.4.0.0`، وضبط مقياس `linked_lead_count` للسجلات القديمة. يعمل
-على دفعات وبشكل idempotent ولا يسجل إلا أعدادًا.
+- Odoo 19 Community فقط؛ لا موديولات/خدمات مدفوعة جديدة.
+- لا sudo حول إنشاء الليدز، لا تغيير صلاحيات الإنشاء، لا إعادة إرسال
+  Messenger تلقائية، لا حذف/تعديل للرسائل أو الليدز.
+- لا Graph API في cron المراقبة؛ التحديث البعيد يبقى يدويًا عبر
+  Run Diagnostics.
+- كل التنبيهات بقاعدة شركة، وكل استعلامات الـsudo مقيدة صراحةً
+  بالحساب/الشركة، والأخطاء البعيدة تمر بتنقية الأسرار قبل التخزين.
+- لا عمل WebSocket/Inbox-UI/CPL/Instagram/WhatsApp هنا.
 
 ## الملفات
 
-- موديلات جديدة: `meta_sync_run.py`, `meta_routing_rule.py`,
-  `meta_lead_backfill_wizard.py`, `migrations/19.0.4.0.0/`
-- Views جديدة: sync_run, routing_rule, lead_identity, backfill_wizard,
-  report_views
-- اختبارات جديدة: `test_meta_sync_run.py` (8)، `test_meta_routing.py`
-  (9)، `test_meta_messages_sync.py` (7)، `test_meta_queue_actions.py`
-  (9)، `test_meta_reports.py` (7)
-- معدلة: بقية models/views/security/data/manifest/tests init
+- جديدة: `models/meta_health.py`، `tests/test_meta_health.py` (33 اختبارًا)،
+  `views/meta_health_views.xml`، `data/meta_health_data.xml`
+- معدلة: `models/meta_account.py` (تصحيح Diagnostics)،
+  `models/meta_lead_queue.py` (return_created)،
+  `models/meta_conversation.py` (ختم رسالة حية)، `controllers/main.py`
+  (ختم الاستلام بعد التوقيع والمطابقة)، `models/__init__.py`،
+  `tests/__init__.py`، `security/*` (ACL + قاعدة شركة)،
+  `data/ir_cron_data.xml` (cron المراقبة)، `views/meta_account_views.xml`
+  و`meta_page_views.xml` و`meta_menus.xml`، `__manifest__.py` (19.0.5.0.0)،
+  `.github/workflows/odoo-meta-tests.yml` (فروع batch3*)
 
 ## نتائج الفحوصات المحلية
 
-- `py_compile` ✅ (كل models/tests/controllers/migration)
-- XML parse ✅ (19 ملفًا)
+- `py_compile` ✅ (كل ملفات .py الجديدة/المعدلة)
+- XML parse ✅ (7 ملفات جديدة/معدلة)
 - `git diff --check` ✅
-- `deploy/validate_addon.py` ✅ (19.0.4.1.0)
-- اختبارات الريبو 14/14 ✅
+- `deploy/validate_addon.py crm_meta_lead_ads` ✅ (19.0.5.0.0)
+- اختبارات الريبو 14/14 ✅ (`python -m unittest discover -s tests -v`)
 - فحص أسرار على الـdiff: صفر ✅
-- اختبارات Odoo الفعلية: **219/219 ناجحة** على قاعدة CI مؤقتة، تشغيل
-  `36176476010`، بما فيها اختبار إعادة تشغيل ترحيل `19.0.4.1.0`.
-  لم تُشغَّل على الإنتاج.
+- اختبارات Odoo 19 الفعلية: **لم تُشغَّل** — تعمل في CI على الفرع فقط.
 
-## خطوات التحديث على الإنتاج (بعد الموافقة)
+## خطوات ما بعد الموافقة والدمج
 
-1. commit + push إلى `main` → CI/CD ينشر ويشغّل `-u crm_meta_lead_ads`
-   (migration 19.0.4.0.0 و19.0.4.1.0 يعملان بحسب الإصدار السابق).
-2. تحقق read-only: الخدمة active، سطر migration بالأعداد، لا أخطاء
-   Registry/XML/ACL/constraint، لا Tokens/PII في السجل.
-3. اختبار حي مؤجل من Batch 1B على النموذج `893155173379183` (صفحة
-   InverseGroup): Lead أول `created`، ثم مكرر بنفس البريد/الهاتف
-   `matched_*`، مع identity rows وخصوصية audit log.
-4. اختبار Sync All Meta Data على الحساب ثم Diagnostics.
+1. مراجعة الـPR ثم دمج صريح إلى `main` → CI/CD ينشر ويحدّث الموديول.
+2. تحقق read-only على الإنتاج: لا أخطاء Registry/XML/ACL/constraint،
+   cron المراقبة ظاهر، ولا تنبيهات تُنشأ قبل تفعيل المراقبة يدويًا.
+3. تفعيل المراقبة على الحساب الإنتاجي مع مالك صالح، ثم اختبار حي
+   بمساعدة المستخدم (تنبيه فشل متعمد ثم استرداده).
 
 ## شروط دائمة
 
 - لا Tokens أو App Secrets أو بيانات عملاء في الكود أو السجلات.
-- Odoo 19 Community فقط؛ لا Enterprise ولا موديولات مدفوعة ولا
-  scraping ولا تجاوز لسياسات Meta.
-- لا نشر دون طلب صريح من المستخدم.
+- Odoo 19 Community فقط؛ لا نشر دون طلب صريح من المستخدم.
