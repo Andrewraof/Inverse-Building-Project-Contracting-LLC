@@ -64,16 +64,19 @@ class MetaLeadQueue(models.Model):
     _unique_queued_lead = models.Constraint('UNIQUE(meta_lead_id, company_id)', 'This Meta lead is already queued for this company.')
 
     @api.model
-    def enqueue_event(self, company, page, leadgen_id, form_id=None, payload=None):
+    def enqueue_event(self, company, page, leadgen_id, form_id=None, payload=None, return_created=False):
         vals = {'company_id': company.id, 'page_id': page.id, 'meta_lead_id': str(leadgen_id), 'raw_webhook': payload or {}}
         if form_id:
             form = self.env['meta.form'].sudo().search([('meta_form_id', '=', str(form_id)), ('company_id', '=', company.id)], limit=1)
             vals['form_id'] = form.id if form else False
         try:
             with self.env.cr.savepoint():
-                return self.sudo().create(vals)
+                record = self.sudo().create(vals)
+                created = True
         except IntegrityError:
-            return self.sudo().search([('meta_lead_id', '=', str(leadgen_id)), ('company_id', '=', company.id)], limit=1)
+            record = self.sudo().search([('meta_lead_id', '=', str(leadgen_id)), ('company_id', '=', company.id)], limit=1)
+            created = False
+        return (record, created) if return_created else record
 
     def _log(self, level, action, message='', payload=None):
         self.ensure_one()

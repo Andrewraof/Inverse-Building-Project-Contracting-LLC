@@ -139,6 +139,10 @@ class MetaConversation(models.Model):
             sender_name=sender_name)
         if not message:
             return message
+        # Live receipt evidence: a new inbound message was recorded. This
+        # hook is reached only from the authenticated webhook path, never
+        # from historical sync (which upserts via meta.sync.run).
+        page._note_live_receipt('message')
 
         # Serialize concurrent webhook deliveries for the same conversation
         # so the unread increment below is never lost between transactions.

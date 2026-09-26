@@ -151,7 +151,36 @@ class MetaLeadController(http.Controller):
                     domain.append(('account_id', '=', account.id))
                 pages = Page.search(domain)
                 for page in pages:
-                    Queue.enqueue_event(page.company_id, page, leadgen_id, value.get('form_id'), payload)
+                    # Receipt evidence is stamped BEFORE processing. It is
+                    # persisted only if the request transaction commits: an
+                    # enqueue failure below aborts the whole request and
+                    # the stamp rolls back with it.
+                    page._note_live_receipt('event')
+                    try:
+                        with request.env.cr.savepoint():
+                            _queue_rec, created = Queue.enqueue_event(
+                                page.company_id, page, leadgen_id, value.get('form_id'),
+                                payload, return_created=True)
+                        if created:
+                            page._note_live_receipt('lead')
+                    except Exception as exc:
+                        safe_error = page.account_id._sanitize_error(exc, [
+                            page.page_access_token,
+                            page.account_id.user_access_token,
+                            page.account_id.app_secret])
+                        _logger.error('Failed to enqueue Meta lead %s for page %s: %s',
+                                      _safe_log_value(leadgen_id), page_meta_id, safe_error)
+                        # Durability over acknowledgement: a valid leadgen
+                        # event that was NOT durably queued must not be
+                        # acknowledged with 200. Re-raising aborts the
+                        # request transaction (rolling back the receipt
+                        # stamp above) and answers non-2xx so Meta
+                        # redelivers; the queue's unique leadgen key keeps
+                        # redelivery idempotent. Recovery polling is a
+                        # backstop, never the durability mechanism.
+                        raise RuntimeError(
+                            'Failed to persist Meta lead event for page %s'
+                            % page_meta_id) from None
             for event in entry.get('messaging', []):
                 self._handle_messaging_event(Page, Conversation, account, entry_page_id, event)
         return request.make_response('EVENT_RECEIVED', status=200)
@@ -176,6 +205,7 @@ class MetaLeadController(http.Controller):
         _logger.info('Meta messaging event: recipient/page ID %s matched %s Odoo page(s) (mid=%s).',
                      _safe_log_value(page_meta_id), len(pages), _safe_log_value(mid))
         for page in pages:
+            page._note_live_receipt('event')
             try:
                 with request.env.cr.savepoint():
                     Conversation.with_company(page.company_id)._record_inbound_message(page, event)

@@ -1,0 +1,9 @@
+<odoo noupdate="1">
+    <!-- Dedicated activity type for Meta health incidents. Alerts complete
+         only activities of this type; unrelated To-Dos are never touched. -->
+    <record id="mail_activity_data_meta_health" model="mail.activity.type">
+        <field name="name">Meta Health</field>
+        <field name="icon">fa-heartbeat</field>
+        <field name="sequence">30</field>
+    </record>
+</odoo>

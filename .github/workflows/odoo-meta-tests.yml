@@ -2,7 +2,7 @@ name: Odoo 19 Meta connector tests
 
 on:
   push:
-    branches: ["batch2-*"]
+    branches: ["batch2-*", "batch3*"]
   workflow_dispatch:
   workflow_call:
 
@@ -43,3 +43,181 @@ jobs:
             --db_host=127.0.0.1 \
             --db_user=odoo \
             --log-level=test
+
+  odoo-upgrade-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U odoo"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Extract the merge-base addon (pre-health version)
+        run: |
+          BASE="$(git merge-base origin/main HEAD)"
+          echo "Merge-base with origin/main: $BASE"
+          mkdir -p .upgrade-base
+          git archive "$BASE" crm_meta_lead_ads | tar -x -C .upgrade-base
+          grep "'version'" .upgrade-base/crm_meta_lead_ads/__manifest__.py
+      - name: Install the base version on a disposable database
+        run: |
+          set -o pipefail
+          docker run --rm --network host \
+            -v "$PWD/.upgrade-base/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
+            -e HOST=127.0.0.1 -e USER=odoo \
+            odoo:19.0 \
+            --database=meta_upgrade_test \
+            --init=crm_meta_lead_ads \
+            --stop-after-init \
+            --without-demo=all \
+            --db_host=127.0.0.1 \
+            --db_user=odoo \
+            --log-level=warn 2>&1 | tee /tmp/base-install.log
+          # Fail on real Odoo registry/XML/ACL errors only: odoo log lines
+          # look like "2026-09-26 06:54:37,174 1 ERROR <db> <logger>: ...".
+          # Docutils description-render noise ("<string>:14: (ERROR/3) ...")
+          # never matches this shape.
+          if grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]+ [0-9]+ (ERROR|CRITICAL) ' /tmp/base-install.log; then
+            echo '::error::Registry/XML/ACL errors during base install'
+            exit 1
+          fi
+      - name: Create representative pre-upgrade data (fake identifiers only)
+        run: |
+          set -o pipefail
+          docker run --rm -i --network host \
+            -v "$PWD/.upgrade-base/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
+            -e HOST=127.0.0.1 -e USER=odoo \
+            odoo:19.0 odoo shell -d meta_upgrade_test \
+            --db_host=127.0.0.1 --db_user=odoo --log-level=error <<'PYEOF' | tee /tmp/fixture.log
+          company = env.company
+          acc = env['meta.account'].create({'name': 'Upgrade Base', 'company_id': company.id, 'app_id': 'upg-app', 'app_secret': 'upg-secret'})
+          page = env['meta.page'].create({'name': 'Upgrade Page', 'company_id': company.id, 'account_id': acc.id, 'meta_page_id': 'upg-100', 'page_access_token': 'upg-tok'})
+          form = env['meta.form'].create({'name': 'Upgrade Form', 'company_id': company.id, 'page_id': page.id, 'meta_form_id': 'upg-200'})
+          env['meta.lead.queue'].create({'company_id': company.id, 'page_id': page.id, 'form_id': form.id, 'meta_lead_id': 'UPG-L1'})
+          env['meta.lead.queue'].create({'company_id': company.id, 'page_id': page.id, 'form_id': form.id, 'meta_lead_id': 'UPG-L2'})
+          conv = env['meta.conversation'].create({'company_id': company.id, 'page_id': page.id, 'psid': 'upg-psid-1'})
+          env['meta.message'].create({'company_id': company.id, 'page_id': page.id, 'conversation_id': conv.id, 'sender_psid': 'upg-psid-1', 'message_text': 'upgrade fixture', 'meta_message_id': 'upg-m1', 'direction': 'inbound'})
+          env.cr.commit()
+          print('FIXTURE_OK')
+          PYEOF
+          grep -q 'FIXTURE_OK' /tmp/fixture.log || { echo '::error::Fixture creation failed'; exit 1; }
+          if grep -q 'Traceback' /tmp/fixture.log; then
+            echo '::error::Traceback during fixture creation'
+            exit 1
+          fi
+      - name: Upgrade the database to the PR branch addon (first pass)
+        run: |
+          set -o pipefail
+          docker run --rm --network host \
+            -v "$PWD/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
+            -e HOST=127.0.0.1 -e USER=odoo \
+            odoo:19.0 \
+            --database=meta_upgrade_test \
+            --update=crm_meta_lead_ads \
+            --stop-after-init \
+            --without-demo=all \
+            --db_host=127.0.0.1 \
+            --db_user=odoo \
+            --log-level=warn 2>&1 | tee /tmp/upgrade-1.log
+          if grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]+ [0-9]+ (ERROR|CRITICAL) ' /tmp/upgrade-1.log; then
+            echo '::error::Registry/XML/ACL errors during first upgrade pass'
+            exit 1
+          fi
+      - name: Verify post-upgrade state (data intact, health defaults unknown)
+        run: |
+          set -o pipefail
+          docker run --rm -i --network host \
+            -v "$PWD/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
+            -e HOST=127.0.0.1 -e USER=odoo \
+            odoo:19.0 odoo shell -d meta_upgrade_test \
+            --db_host=127.0.0.1 --db_user=odoo --log-level=error <<'PYEOF' | tee /tmp/verify-1.log
+          try:
+              acc = env['meta.account'].search([('name', '=', 'Upgrade Base')])
+              assert len(acc) == 1, 'account row lost'
+              assert acc.health_monitoring_enabled is False, 'monitoring must default to disabled on upgrade'
+              assert acc.health_backlog_threshold_minutes == 15, 'backlog threshold default'
+              assert acc.health_silence_minutes == 0, 'silence default disabled'
+              assert acc.health_token_expiry_warn_days == 7, 'token warning default'
+              assert acc.health_level == 'disabled', 'health level must be Disabled before configuration'
+              assert acc.last_webhook_event_at is False, 'account receipt must start Unknown'
+              assert acc.last_diagnostic_outcome is False, 'diagnostic outcome starts empty'
+              page = env['meta.page'].search([('meta_page_id', '=', 'upg-100')])
+              assert len(page) == 1, 'page row lost'
+              assert page.last_webhook_event_at is False, 'page receipt must start Unknown'
+              assert page.last_live_message_at is False, 'live message receipt must start Unknown'
+              assert page.last_live_lead_enqueued_at is False, 'live lead receipt must start Unknown'
+              assert env['meta.lead.queue'].search_count([('meta_lead_id', 'in', ['UPG-L1', 'UPG-L2'])]) == 2, 'queue rows lost'
+              assert env['meta.conversation'].search_count([('psid', '=', 'upg-psid-1')]) == 1, 'conversation lost'
+              assert env['meta.message'].search_count([('meta_message_id', '=', 'upg-m1')]) == 1, 'message lost'
+              assert env['meta.health.alert'].search_count([]) == 0, 'no alerts may exist before monitoring'
+              cron = env.ref('crm_meta_lead_ads.ir_cron_meta_health_monitor')
+              assert cron.interval_number == 5 and cron.active, 'monitor cron missing'
+              assert env.ref('crm_meta_lead_ads.mail_activity_data_meta_health').name == 'Meta Health'
+              assert env.ref('crm_meta_lead_ads.view_meta_account_health_form').model == 'meta.account'
+              assert env.ref('crm_meta_lead_ads.view_meta_health_alert_list').model == 'meta.health.alert'
+              assert env.ref('crm_meta_lead_ads.rule_meta_health_alert_company')
+              assert env.ref('crm_meta_lead_ads.access_meta_health_alert_manager')
+              assert env.ref('crm_meta_lead_ads.access_meta_health_alert_user')
+              print('UPGRADE_ASSERTIONS_OK')
+          except AssertionError as exc:
+              print('UPGRADE_ASSERTIONS_FAILED: %s' % exc)
+          PYEOF
+          grep -q 'UPGRADE_ASSERTIONS_OK' /tmp/verify-1.log || { echo '::error::Post-upgrade assertions failed'; exit 1; }
+          if grep -qE 'UPGRADE_ASSERTIONS_FAILED|Traceback' /tmp/verify-1.log; then
+            echo '::error::Post-upgrade verification errors'
+            exit 1
+          fi
+      - name: Upgrade a second time (idempotency proof)
+        run: |
+          set -o pipefail
+          docker run --rm --network host \
+            -v "$PWD/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
+            -e HOST=127.0.0.1 -e USER=odoo \
+            odoo:19.0 \
+            --database=meta_upgrade_test \
+            --update=crm_meta_lead_ads \
+            --stop-after-init \
+            --without-demo=all \
+            --db_host=127.0.0.1 \
+            --db_user=odoo \
+            --log-level=warn 2>&1 | tee /tmp/upgrade-2.log
+          if grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]+ [0-9]+ (ERROR|CRITICAL) ' /tmp/upgrade-2.log; then
+            echo '::error::Registry/XML/ACL errors during second upgrade pass'
+            exit 1
+          fi
+      - name: Re-verify state after the second upgrade
+        run: |
+          set -o pipefail
+          docker run --rm -i --network host \
+            -v "$PWD/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
+            -e HOST=127.0.0.1 -e USER=odoo \
+            odoo:19.0 odoo shell -d meta_upgrade_test \
+            --db_host=127.0.0.1 --db_user=odoo --log-level=error <<'PYEOF' | tee /tmp/verify-2.log
+          try:
+              acc = env['meta.account'].search([('name', '=', 'Upgrade Base')])
+              assert len(acc) == 1, 'account row lost on second pass'
+              assert acc.health_monitoring_enabled is False, 'second pass re-enabled monitoring'
+              assert env['meta.lead.queue'].search_count([('meta_lead_id', 'in', ['UPG-L1', 'UPG-L2'])]) == 2, 'queue rows lost on second pass'
+              assert env['meta.health.alert'].search_count([]) == 0, 'second pass created alerts'
+              print('UPGRADE2_ASSERTIONS_OK')
+          except AssertionError as exc:
+              print('UPGRADE2_ASSERTIONS_FAILED: %s' % exc)
+          PYEOF
+          grep -q 'UPGRADE2_ASSERTIONS_OK' /tmp/verify-2.log || { echo '::error::Second-pass assertions failed'; exit 1; }
+          if grep -qE 'UPGRADE2_ASSERTIONS_FAILED|Traceback' /tmp/verify-2.log; then
+            echo '::error::Second-pass verification errors'
+            exit 1
+          fi
