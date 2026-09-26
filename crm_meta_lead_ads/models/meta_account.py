@@ -44,6 +44,11 @@ class MetaAccount(models.Model):
     granted_permissions = fields.Char(readonly=True, copy=False)
     missing_permissions = fields.Char(readonly=True, copy=False)
     permissions_checked_at = fields.Datetime(readonly=True, copy=False)
+    diagnostic_status = fields.Selection([
+        ('unknown', 'Unknown'), ('success', 'Success'),
+        ('warning', 'Warning'), ('failure', 'Failure'),
+    ], default='unknown', readonly=True, copy=False)
+    diagnostic_checked_at = fields.Datetime(readonly=True, copy=False)
     app_mode = fields.Char(readonly=True, copy=False,
                            default='Unknown — check the Meta App Dashboard')
 
@@ -121,11 +126,19 @@ class MetaAccount(models.Model):
         going in that case (the endpoint may be restricted in some modes)."""
         self.ensure_one()
         if not self.user_access_token:
+            self.write({'granted_permissions': False,
+                        'missing_permissions': False,
+                        'permissions_checked_at': False})
             return None, None
         try:
             data = self._request('GET', 'me/permissions',
                                  token=self.user_access_token, params={'limit': 200})
         except Exception:
+            # Old scopes cannot be presented as fresh evidence after a failed
+            # check. Individual page-token operations remain independent.
+            self.write({'granted_permissions': False,
+                        'missing_permissions': False,
+                        'permissions_checked_at': False})
             return None, None
         if not data.get('data'):
             # An empty edge does not prove that every scope was denied.
@@ -151,23 +164,41 @@ class MetaAccount(models.Model):
         webhook subscription of every page. Never raises: each check
         writes its own sanitized outcome."""
         self.ensure_one()
+        connection_ok = True
         try:
             self.action_test_connection()
         except Exception as exc:
+            connection_ok = False
             safe = self._sanitize_error(
                 exc, [self.user_access_token, self.app_secret])
             self.write({'state': 'error', 'error_message': safe})
-        self._fetch_permissions()
-        for page in self.with_context(active_test=False).page_ids:
+        granted, missing = self._fetch_permissions()
+        page_statuses = []
+        for page in self.page_ids.filtered(lambda p: p.active and p.sync_enabled):
             if page.page_access_token:
-                page._verify_subscription()
+                status, _error = page._verify_subscription()
+                page_statuses.append(status)
+            else:
+                page_statuses.append('failed')
+        if not connection_ok or 'failed' in page_statuses:
+            result = 'failure'
+        elif missing or 'incomplete' in page_statuses:
+            result = 'warning'
+        elif granted is None or not page_statuses:
+            result = 'unknown'
+        else:
+            result = 'success'
+        self.write({'diagnostic_status': result,
+                    'diagnostic_checked_at': fields.Datetime.now()})
+        notif_types = {'failure': 'danger', 'warning': 'warning',
+                       'unknown': 'info', 'success': 'success'}
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
                 'title': _('Meta Diagnostics'),
                 'message': _('Diagnostics refreshed. Check the Diagnostics tab.'),
-                'type': 'success' if not self.missing_permissions else 'warning',
+                'type': notif_types[result],
                 'sticky': False,
             },
         }
