@@ -151,10 +151,23 @@ class MetaLeadController(http.Controller):
                     domain.append(('account_id', '=', account.id))
                 pages = Page.search(domain)
                 for page in pages:
-                    _queue_rec, created = Queue.enqueue_event(
-                        page.company_id, page, leadgen_id, value.get('form_id'),
-                        payload, return_created=True)
-                    page._note_live_receipt('lead' if created else 'event')
+                    # Receipt evidence is stamped BEFORE processing, so a
+                    # failed enqueue never erases proof of a valid delivery.
+                    page._note_live_receipt('event')
+                    try:
+                        with request.env.cr.savepoint():
+                            _queue_rec, created = Queue.enqueue_event(
+                                page.company_id, page, leadgen_id, value.get('form_id'),
+                                payload, return_created=True)
+                        if created:
+                            page._note_live_receipt('lead')
+                    except Exception as exc:
+                        safe_error = page.account_id._sanitize_error(exc, [
+                            page.page_access_token,
+                            page.account_id.user_access_token,
+                            page.account_id.app_secret])
+                        _logger.error('Failed to enqueue Meta lead %s for page %s: %s',
+                                      _safe_log_value(leadgen_id), page_meta_id, safe_error)
             for event in entry.get('messaging', []):
                 self._handle_messaging_event(Page, Conversation, account, entry_page_id, event)
         return request.make_response('EVENT_RECEIVED', status=200)

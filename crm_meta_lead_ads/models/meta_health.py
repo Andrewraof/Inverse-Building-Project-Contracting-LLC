@@ -514,11 +514,25 @@ class MetaAccountHealth(models.Model):
             if account.health_token_expiry_warn_days < 0:
                 raise ValidationError(_('The token-expiry warning interval cannot be negative.'))
 
+    def _check_health_manager_access(self):
+        """Guard every public health action: the caller must be a Meta
+        manager AND the account's company must be inside the caller's
+        allowed companies BEFORE any sudo escalation happens below. The
+        company read is the only escalation here and returns an id, so a
+        cross-company RPC call fails with a clean UserError instead of
+        silently running sudo-scoped queries on another company's data."""
+        if not self.env.user.has_group('crm_meta_lead_ads.group_meta_lead_manager'):
+            raise UserError(_('Only Meta Lead Ads managers can use health actions.'))
+        allowed = self.env.user.company_ids
+        for account in self:
+            if account.sudo().company_id not in allowed:
+                raise UserError(_(
+                    'This Meta account belongs to a company you cannot access.'))
+
     def action_health_check_now(self):
         """Run the local monitoring assessment now (manager only). Local
         data only — this never calls Meta."""
-        if not self.env.user.has_group('crm_meta_lead_ads.group_meta_lead_manager'):
-            raise UserError(_('Only Meta Lead Ads managers can run health checks.'))
+        self._check_health_manager_access()
         Alert = self.env['meta.health.alert']
         for account in self:
             Alert._assess_account(account)
@@ -535,8 +549,7 @@ class MetaAccountHealth(models.Model):
     def action_health_open_queue(self):
         """Drill down to this account's ingestion queue, keeping the
         account scope; normal record rules still apply."""
-        if not self.env.user.has_group('crm_meta_lead_ads.group_meta_lead_manager'):
-            raise UserError(_('Only Meta Lead Ads managers can open health drill-downs.'))
+        self._check_health_manager_access()
         self.ensure_one()
         return {
             'type': 'ir.actions.act_window',
