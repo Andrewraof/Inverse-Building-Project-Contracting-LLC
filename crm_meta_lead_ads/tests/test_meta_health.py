@@ -271,6 +271,18 @@ class TestMetaHealthSnapshot(TransactionCase):
         self.assertGreaterEqual(snap['oldest_due_minutes'], 30)
         self.assertIn('queue_overdue', snap['issues'])
 
+    def test_freshly_due_retry_and_recent_processing_are_not_overdue(self):
+        now = fields.Datetime.now()
+        old = now - timedelta(hours=1)
+        self.account.health_monitor_enabled = True
+        self._queue(self.page, 'retry-freshly-due', 'retry', old,
+                    now - timedelta(seconds=30))
+        self._queue(self.page, 'processing-just-started', 'processing', old)
+        snap = self.account._health_snapshot(now)
+        self.assertEqual(snap['due_queue_count'], 2)
+        self.assertLess(snap['oldest_due_minutes'], 15)
+        self.assertNotIn('queue_overdue', snap['issues'])
+
     def test_failed_ambiguous_and_outbound_are_account_scoped(self):
         now = fields.Datetime.now()
         self.account.write({'health_monitor_enabled': True})
@@ -419,6 +431,16 @@ class TestMetaHealthAlerts(TransactionCase):
         self.account._cron_assess_health(limit=5)
         alert = self._alerts().filtered(lambda a: a.check_code == 'account_disconnected')
         self.assertEqual(len(alert), 1)
+        self.assertFalse(self._activities(alert))
+
+    def test_revoking_owner_removes_only_the_dedicated_activity(self):
+        self.account.state = 'error'
+        self.account._cron_assess_health(limit=5)
+        alert = self._alerts().filtered(lambda a: a.check_code == 'account_disconnected')
+        self.assertEqual(len(self._activities(alert)), 1)
+        self.manager.active = False
+        self.account._cron_assess_health(limit=5)
+        self.assertEqual(alert.state, 'open')
         self.assertFalse(self._activities(alert))
 
     def test_non_manager_cannot_acknowledge_alert(self):
