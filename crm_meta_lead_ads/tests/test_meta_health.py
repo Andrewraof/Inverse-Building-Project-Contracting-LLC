@@ -3,6 +3,8 @@ import hmac
 import json
 from unittest.mock import MagicMock, patch
 
+from odoo import fields
+from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase
 
 
@@ -124,3 +126,87 @@ class TestMetaLiveWebhookEvidence(TransactionCase):
         self.page.invalidate_recordset()
         self.assertFalse(self.page.last_live_webhook_at)
         self.assertFalse(self.page.last_live_message_recorded_at)
+
+
+class TestMetaDiagnostics(TransactionCase):
+    """Wrong success banners or stale scope evidence must break these tests."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.account = cls.env['meta.account'].create({
+            'name': 'Diagnostic Account', 'company_id': cls.env.company.id,
+            'app_id': 'diag-app', 'app_secret': 'diag-secret',
+            'user_access_token': 'diag-user-token',
+        })
+        cls.page = cls.env['meta.page'].create({
+            'name': 'Diagnostic Page', 'company_id': cls.env.company.id,
+            'account_id': cls.account.id, 'meta_page_id': 'diag-page',
+            'page_access_token': 'diag-page-token',
+        })
+
+    def _run(self, connection_error=False, scopes=None, subscription_fields=None,
+             permission_error=False):
+        if scopes is None:
+            scopes = ('leads_retrieval', 'pages_show_list',
+                      'pages_read_engagement', 'pages_manage_metadata',
+                      'pages_messaging')
+        if subscription_fields is None:
+            subscription_fields = ('leadgen', 'messages', 'messaging_postbacks')
+
+        def request(method, path, **kwargs):
+            if path == 'me':
+                if connection_error:
+                    raise UserError('connection failed diag-user-token')
+                return {'id': 'diag-user'}
+            if path == 'me/permissions':
+                if permission_error:
+                    raise UserError('permission check failed diag-user-token')
+                return {'data': [{'name': name, 'status': 'granted'}
+                                 for name in scopes]}
+            if path == 'diag-page/subscribed_apps':
+                return {'data': [{'id': self.account.app_id,
+                                  'subscribed_fields': list(subscription_fields)}]}
+            raise AssertionError('unexpected Graph path %s' % path)
+
+        with patch.object(type(self.account), '_request', side_effect=request):
+            return self.account.action_run_diagnostics()
+
+    def test_failed_connection_never_shows_success(self):
+        action = self._run(connection_error=True)
+        self.assertEqual(action['params']['type'], 'danger')
+        self.account.invalidate_recordset()
+        self.assertEqual(self.account.diagnostic_status, 'failure')
+        self.assertNotIn('diag-user-token', self.account.error_message or '')
+
+    def test_incomplete_subscription_shows_warning(self):
+        action = self._run(subscription_fields=('leadgen',))
+        self.assertEqual(action['params']['type'], 'warning')
+        self.assertEqual(self.account.diagnostic_status, 'warning')
+        self.assertEqual(self.page.subscription_status, 'incomplete')
+
+    def test_unknown_permissions_clear_stale_evidence(self):
+        self.account.write({
+            'granted_permissions': 'pages_messaging',
+            'missing_permissions': 'leads_retrieval',
+            'permissions_checked_at': fields.Datetime.now(),
+        })
+        action = self._run(permission_error=True)
+        self.account.invalidate_recordset()
+        self.assertFalse(self.account.permissions_checked_at)
+        self.assertFalse(self.account.granted_permissions)
+        self.assertFalse(self.account.missing_permissions)
+        self.assertEqual(self.account.diagnostic_status, 'unknown')
+        self.assertEqual(action['params']['type'], 'info')
+
+    def test_empty_permissions_are_unknown_not_denied(self):
+        action = self._run(scopes=())
+        self.assertEqual(self.account.diagnostic_status, 'unknown')
+        self.assertFalse(self.account.missing_permissions)
+        self.assertEqual(action['params']['type'], 'info')
+
+    def test_complete_diagnostics_show_success(self):
+        action = self._run()
+        self.assertEqual(self.account.diagnostic_status, 'success')
+        self.assertTrue(self.account.diagnostic_checked_at)
+        self.assertEqual(action['params']['type'], 'success')
