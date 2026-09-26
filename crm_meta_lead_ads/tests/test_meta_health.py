@@ -5,7 +5,7 @@ from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from odoo import fields
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests.common import TransactionCase
 
 
@@ -346,3 +346,87 @@ class TestMetaHealthSnapshot(TransactionCase):
         self.assertFalse(self.account._health_owner_eligible())
         with self.assertRaises(ValidationError):
             self.account._check_health_settings()
+
+
+class TestMetaHealthAlerts(TransactionCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        group = cls.env.ref('crm_meta_lead_ads.group_meta_lead_manager')
+        cls.manager = cls.env['res.users'].create({
+            'name': 'Health Alert Manager', 'login': 'health_alert_manager',
+            'company_id': cls.env.company.id,
+            'company_ids': [(6, 0, [cls.env.company.id])],
+            'group_ids': [(6, 0, [group.id,
+                                   cls.env.ref('base.group_user').id])],
+        })
+        cls.account = cls.env['meta.account'].create({
+            'name': 'Health Alerts', 'company_id': cls.env.company.id,
+            'app_id': 'alert-app', 'app_secret': 'alert-secret',
+            'health_monitor_enabled': True, 'health_owner_id': cls.manager.id,
+        })
+        cls.page = cls.env['meta.page'].create({
+            'name': 'Alert Page', 'company_id': cls.env.company.id,
+            'account_id': cls.account.id, 'meta_page_id': 'alert-page',
+            'page_access_token': 'alert-page-token',
+        })
+
+    def _alerts(self):
+        return self.env['meta.health.alert'].search([
+            ('account_id', '=', self.account.id)])
+
+    def _activities(self, alert):
+        return self.env['mail.activity'].search([
+            ('res_model_id', '=', self.env['ir.model']._get_id('meta.health.alert')),
+            ('res_id', '=', alert.id),
+            ('activity_type_id', '=', self.env.ref(
+                'crm_meta_lead_ads.mail_activity_type_meta_health').id),
+        ])
+
+    def test_repeated_assessment_acknowledge_recovery_and_recurrence(self):
+        now = fields.Datetime.now()
+        self.account.state = 'error'
+        self.account._cron_assess_health(limit=5, now=now)
+        alert = self._alerts().filtered(lambda a: a.check_code == 'account_disconnected')
+        self.assertEqual(len(alert), 1)
+        self.assertEqual(alert.state, 'open')
+        self.assertEqual(len(self._activities(alert)), 1)
+        self.account._cron_assess_health(limit=5, now=now + timedelta(minutes=5))
+        self.assertEqual(len(self._alerts().filtered(
+            lambda a: a.check_code == 'account_disconnected')), 1)
+        self.assertEqual(len(self._activities(alert)), 1)
+        alert.with_user(self.manager).action_acknowledge()
+        self.assertEqual(alert.state, 'acknowledged')
+        self.account._cron_assess_health(limit=5, now=now + timedelta(minutes=10))
+        self.assertEqual(alert.state, 'acknowledged')
+        self.assertEqual(len(self._activities(alert)), 1)
+        self.account.state = 'connected'
+        self.account._cron_assess_health(limit=5, now=now + timedelta(minutes=15))
+        self.assertEqual(alert.state, 'resolved')
+        self.assertFalse(self._activities(alert))
+        self.account.state = 'error'
+        self.account._cron_assess_health(limit=5, now=now + timedelta(minutes=20))
+        self.assertEqual(alert.state, 'open')
+        self.assertEqual(len(self._activities(alert)), 1)
+
+    def test_revoked_owner_keeps_alert_without_notification(self):
+        self.manager.active = False
+        self.account.state = 'error'
+        self.account._cron_assess_health(limit=5)
+        alert = self._alerts().filtered(lambda a: a.check_code == 'account_disconnected')
+        self.assertEqual(len(alert), 1)
+        self.assertFalse(self._activities(alert))
+
+    def test_non_manager_cannot_acknowledge_alert(self):
+        self.account.state = 'error'
+        self.account._cron_assess_health(limit=5)
+        alert = self._alerts().filtered(lambda a: a.check_code == 'account_disconnected')
+        user = self.env['res.users'].create({
+            'name': 'Health Ordinary User', 'login': 'health_ordinary_user',
+            'company_id': self.env.company.id,
+            'company_ids': [(6, 0, [self.env.company.id])],
+            'group_ids': [(6, 0, [self.env.ref('base.group_user').id,
+                                   self.env.ref('crm_meta_lead_ads.group_meta_lead_user').id])],
+        })
+        with self.assertRaises((AccessError, UserError)):
+            alert.with_user(user).action_acknowledge()
