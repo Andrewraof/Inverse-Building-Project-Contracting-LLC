@@ -34,8 +34,34 @@ class MetaPage(models.Model):
     subscription_error = fields.Char(readonly=True)
     form_ids = fields.One2many('meta.form', 'page_id')
     last_sync_at = fields.Datetime(readonly=True)
+    # Live webhook evidence is intentionally independent of historical sync.
+    # Existing records remain unknown until a signed event is observed.
+    last_live_webhook_at = fields.Datetime(readonly=True, copy=False)
+    last_live_lead_webhook_at = fields.Datetime(readonly=True, copy=False)
+    last_live_message_webhook_at = fields.Datetime(readonly=True, copy=False)
+    last_live_lead_enqueued_at = fields.Datetime(readonly=True, copy=False)
+    last_live_message_recorded_at = fields.Datetime(readonly=True, copy=False)
 
     _unique_page_company = models.Constraint('UNIQUE(meta_page_id, company_id)', 'This Meta Page is already configured for this company.')
+
+    def _mark_live_webhook_received(self, kind, at=None):
+        """Record an authenticated event for this configured page only."""
+        self.ensure_one()
+        field = {
+            'lead': 'last_live_lead_webhook_at',
+            'message': 'last_live_message_webhook_at',
+        }[kind]
+        now = at or fields.Datetime.now()
+        self.write({'last_live_webhook_at': now, field: now})
+
+    def _mark_live_processing_success(self, kind, at=None):
+        """Record success separately from signed webhook receipt."""
+        self.ensure_one()
+        field = {
+            'lead': 'last_live_lead_enqueued_at',
+            'message': 'last_live_message_recorded_at',
+        }[kind]
+        self.write({field: at or fields.Datetime.now()})
 
     @api.constrains('page_access_token', 'meta_page_id', 'active', 'sync_enabled')
     def _check_page_access_token(self):

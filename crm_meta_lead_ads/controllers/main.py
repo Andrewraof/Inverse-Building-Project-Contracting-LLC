@@ -151,7 +151,19 @@ class MetaLeadController(http.Controller):
                     domain.append(('account_id', '=', account.id))
                 pages = Page.search(domain)
                 for page in pages:
-                    Queue.enqueue_event(page.company_id, page, leadgen_id, value.get('form_id'), payload)
+                    page._mark_live_webhook_received('lead')
+                    try:
+                        with request.env.cr.savepoint():
+                            queued = Queue.enqueue_event(
+                                page.company_id, page, leadgen_id,
+                                value.get('form_id'), payload)
+                            if queued:
+                                page._mark_live_processing_success('lead')
+                    except Exception:
+                        # Keep receipt evidence even when queue storage fails.
+                        # Exception text may contain customer data or tokens.
+                        _logger.error('Failed to enqueue signed Meta lead for configured page %s.',
+                                      _safe_log_value(page_meta_id))
             for event in entry.get('messaging', []):
                 self._handle_messaging_event(Page, Conversation, account, entry_page_id, event)
         return request.make_response('EVENT_RECEIVED', status=200)
@@ -159,7 +171,7 @@ class MetaLeadController(http.Controller):
     def _handle_messaging_event(self, Page, Conversation, account, entry_page_id, event):
         message = event.get('message') or {}
         mid = message.get('mid')
-        if message.get('is_echo') or not mid:
+        if message.get('is_echo') or not mid or not (event.get('sender') or {}).get('id'):
             return
         page_meta_id = str((event.get('recipient') or {}).get('id') or entry_page_id)
         if not page_meta_id:
@@ -176,9 +188,12 @@ class MetaLeadController(http.Controller):
         _logger.info('Meta messaging event: recipient/page ID %s matched %s Odoo page(s) (mid=%s).',
                      _safe_log_value(page_meta_id), len(pages), _safe_log_value(mid))
         for page in pages:
+            page._mark_live_webhook_received('message')
             try:
                 with request.env.cr.savepoint():
-                    Conversation.with_company(page.company_id)._record_inbound_message(page, event)
+                    recorded = Conversation.with_company(page.company_id)._record_inbound_message(page, event)
+                    if recorded:
+                        page._mark_live_processing_success('message')
             except Exception as exc:
                 secrets_to_hide = [
                     page.page_access_token,
