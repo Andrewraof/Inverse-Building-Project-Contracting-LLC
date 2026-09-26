@@ -100,3 +100,27 @@ class TestMetaLiveWebhookEvidence(TransactionCase):
         self.assertTrue(self.page.last_live_message_webhook_at)
         self.assertTrue(self.page.last_live_message_recorded_at)
 
+    def test_repeat_signed_lead_keeps_single_queue_record(self):
+        payload = self._lead_payload(lead_id='health-repeat-1')
+        self.assertEqual(self._receive(payload, self.account)[1], 200)
+        self.assertEqual(self._receive(payload, self.account)[1], 200)
+        self.assertEqual(self.env['meta.lead.queue'].search_count([
+            ('company_id', '=', self.env.company.id),
+            ('meta_lead_id', '=', 'health-repeat-1')]), 1)
+        self.assertTrue(self.page.last_live_lead_webhook_at)
+
+    def test_historical_message_import_is_not_live_webhook_evidence(self):
+        conv = self.env['meta.conversation']._get_or_create(
+            self.page, 'history-health-psid')
+        run = self.env['meta.sync.run'].create({
+            'account_id': self.account.id, 'company_id': self.env.company.id,
+            'run_type': 'messages',
+        })
+        self.assertEqual(run._upsert_history_message(conv, self.page, {
+            'id': 'history-health-mid',
+            'from': {'id': 'history-health-psid', 'name': 'Historical Contact'},
+            'message': 'prior message',
+        }), 'created')
+        self.page.invalidate_recordset()
+        self.assertFalse(self.page.last_live_webhook_at)
+        self.assertFalse(self.page.last_live_message_recorded_at)
