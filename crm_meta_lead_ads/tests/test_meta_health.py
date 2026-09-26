@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from odoo import fields
@@ -210,3 +211,102 @@ class TestMetaDiagnostics(TransactionCase):
         self.assertEqual(self.account.diagnostic_status, 'success')
         self.assertTrue(self.account.diagnostic_checked_at)
         self.assertEqual(action['params']['type'], 'success')
+
+
+class TestMetaHealthSnapshot(TransactionCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.account = cls.env['meta.account'].create({
+            'name': 'Health Snapshot', 'company_id': cls.env.company.id,
+            'app_id': 'snapshot-app', 'app_secret': 'snapshot-secret',
+        })
+        cls.page = cls.env['meta.page'].create({
+            'name': 'Snapshot Page', 'company_id': cls.env.company.id,
+            'account_id': cls.account.id, 'meta_page_id': 'snapshot-page',
+            'page_access_token': 'snapshot-token',
+        })
+        cls.other = cls.env['meta.account'].create({
+            'name': 'Other Snapshot', 'company_id': cls.env.company.id,
+            'app_id': 'other-snapshot-app', 'app_secret': 'other-snapshot-secret',
+        })
+        cls.other_page = cls.env['meta.page'].create({
+            'name': 'Other Page', 'company_id': cls.env.company.id,
+            'account_id': cls.other.id, 'meta_page_id': 'other-snapshot-page',
+            'page_access_token': 'other-snapshot-token',
+        })
+
+    def _queue(self, page, lead_id, state, at, retry=None):
+        return self.env['meta.lead.queue'].create({
+            'company_id': page.company_id.id, 'page_id': page.id,
+            'meta_lead_id': lead_id, 'state': state,
+            'received_at': at, 'next_retry_at': retry,
+        })
+
+    def test_disabled_and_quiet_unknown_without_silence_policy(self):
+        now = fields.Datetime.now()
+        snap = self.account._health_snapshot(now)
+        self.assertEqual(snap['level'], 'disabled')
+        self.assertEqual(snap['issues'], [])
+        self.account.write({'health_monitor_enabled': True})
+        snap = self.account._health_snapshot(now)
+        self.assertEqual(snap['level'], 'unknown')
+        self.assertNotIn('webhook_silence', snap['issues'])
+
+    def test_due_jobs_exclude_future_retries_and_other_account(self):
+        now = fields.Datetime.now()
+        old = now - timedelta(minutes=31)
+        self.account.write({'health_monitor_enabled': True})
+        self._queue(self.page, 'health-pending', 'pending', old)
+        self._queue(self.page, 'health-retry-future', 'retry', old,
+                    now + timedelta(hours=1))
+        self._queue(self.page, 'health-processing', 'processing', old)
+        self._queue(self.other_page, 'other-pending', 'pending', old)
+        snap = self.account._health_snapshot(now)
+        self.assertEqual(snap['due_queue_count'], 2)
+        self.assertGreaterEqual(snap['oldest_due_minutes'], 30)
+        self.assertIn('queue_overdue', snap['issues'])
+
+    def test_failed_ambiguous_and_outbound_are_account_scoped(self):
+        now = fields.Datetime.now()
+        self.account.write({'health_monitor_enabled': True})
+        self._queue(self.page, 'health-failed', 'failed', now)
+        self._queue(self.page, 'health-ambiguous', 'ambiguous', now)
+        self._queue(self.other_page, 'other-failed', 'failed', now)
+        self.env['meta.message'].create({
+            'company_id': self.env.company.id, 'page_id': self.page.id,
+            'sender_psid': 'health-psid', 'meta_message_id': 'health-failed-out',
+            'direction': 'outbound', 'send_state': 'failed', 'received_at': now,
+        })
+        self.env['meta.message'].create({
+            'company_id': self.env.company.id, 'page_id': self.other_page.id,
+            'sender_psid': 'other-psid', 'meta_message_id': 'other-failed-out',
+            'direction': 'outbound', 'send_state': 'failed', 'received_at': now,
+        })
+        snap = self.account._health_snapshot(now)
+        self.assertEqual(snap['failed_queue_count'], 1)
+        self.assertEqual(snap['ambiguous_queue_count'], 1)
+        self.assertEqual(snap['failed_outbound_24h_count'], 1)
+        self.assertIn('queue_failed', snap['issues'])
+        self.assertIn('queue_ambiguous', snap['issues'])
+        self.assertIn('outbound_failed', snap['issues'])
+
+    def test_known_expiry_and_stale_subscription_not_current_failure(self):
+        now = fields.Datetime.now()
+        self.account.write({'health_monitor_enabled': True,
+                            'token_expires_at': now + timedelta(days=2)})
+        self.page.write({'subscription_status': 'failed',
+                         'subscription_checked_at': now - timedelta(days=2)})
+        snap = self.account._health_snapshot(now)
+        self.assertIn('token_expiring', snap['issues'])
+        self.assertIn('subscription_stale', snap['issues'])
+        self.assertNotIn('subscription_failed', snap['issues'])
+
+    def test_optional_silence_starts_at_enablement_not_old_history(self):
+        now = fields.Datetime.now()
+        self.account.write({'health_monitor_enabled': True,
+                            'health_silence_minutes': 60,
+                            'health_enabled_at': now - timedelta(minutes=90)})
+        self.assertIn('webhook_silence', self.account._health_snapshot(now)['issues'])
+        self.page.last_live_webhook_at = now - timedelta(minutes=10)
+        self.assertNotIn('webhook_silence', self.account._health_snapshot(now)['issues'])
