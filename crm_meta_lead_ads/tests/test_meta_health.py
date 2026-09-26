@@ -227,9 +227,10 @@ class TestMetaDiagnostics(TransactionCase):
                                    self.env.ref('crm_meta_lead_ads.group_meta_lead_user').id])],
         })
         with patch.object(type(self.account), '_request',
-                          side_effect=AssertionError('Graph called by non-manager')):
+                          side_effect=AssertionError('Graph called by non-manager')) as remote:
             with self.assertRaises(UserError):
                 self.account.with_user(user).action_run_diagnostics()
+            remote.assert_not_called()
 
 
 class TestMetaHealthSnapshot(TransactionCase):
