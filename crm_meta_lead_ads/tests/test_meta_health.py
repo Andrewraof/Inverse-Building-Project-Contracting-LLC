@@ -79,7 +79,7 @@ class MetaHealthBase(TransactionCase):
         return self.env['res.users'].create({
             'name': login, 'login': login, 'company_id': company.id,
             'company_ids': [(6, 0, [c.id for c in allowed])],
-            'groups_id': [(4, self.env.ref(group_xmlid).id)],
+            'group_ids': [(4, self.env.ref(group_xmlid).id)],
         })
 
     def _make_manager(self, login='health_manager', companies=None):
