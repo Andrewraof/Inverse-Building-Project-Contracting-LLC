@@ -2,7 +2,7 @@ name: Odoo 19 Meta connector tests
 
 on:
   push:
-    branches: ["batch2-*", "batch3a-*"]
+    branches: ["batch2-*", "batch3*"]
   workflow_dispatch:
   workflow_call:
 

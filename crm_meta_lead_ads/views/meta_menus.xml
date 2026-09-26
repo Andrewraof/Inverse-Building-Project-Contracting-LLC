@@ -2,6 +2,8 @@
     <menuitem id="menu_meta_root" name="Meta Lead Ads" parent="crm.crm_menu_root" sequence="80" groups="crm_meta_lead_ads.group_meta_lead_user"/>
     <menuitem id="menu_meta_accounts" name="Accounts" parent="menu_meta_root" action="action_meta_account" sequence="5" groups="crm_meta_lead_ads.group_meta_lead_manager"/>
     <menuitem id="menu_meta_pages" name="Pages" parent="menu_meta_root" action="action_meta_page" sequence="10"/>
+    <menuitem id="menu_meta_health" name="Health" parent="menu_meta_root" action="action_meta_account_health" sequence="15" groups="crm_meta_lead_ads.group_meta_lead_manager"/>
+    <menuitem id="menu_meta_health_alerts" name="Health Alerts" parent="menu_meta_root" action="action_meta_health_alert" sequence="16" groups="crm_meta_lead_ads.group_meta_lead_manager"/>
     <menuitem id="menu_meta_forms" name="Forms &amp; Mapping" parent="menu_meta_root" action="action_meta_form" sequence="20"/>
     <menuitem id="menu_meta_sync_runs" name="Sync Runs" parent="menu_meta_root" action="action_meta_sync_run" sequence="22"/>
     <menuitem id="menu_meta_inbox" name="Inbox" parent="menu_meta_root" action="action_meta_conversation" sequence="23"/>

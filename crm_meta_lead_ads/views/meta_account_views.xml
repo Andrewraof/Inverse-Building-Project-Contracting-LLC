@@ -23,6 +23,14 @@
                             <field name="missing_permissions" readonly="1"/>
                         </group>
                     </group>
+                    <group>
+                        <group>
+                            <field name="last_diagnostic_at" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="last_diagnostic_outcome" widget="badge" readonly="1"/>
+                        </group>
+                    </group>
                     <p class="text-muted">Required permissions: leads_retrieval, pages_show_list, pages_read_engagement, pages_manage_metadata, pages_messaging. Ads Insights (CPL) requires the ads_read permission — not available: cost metrics stay hidden until granted via the official API.</p>
                 </page>
             </notebook></sheet>

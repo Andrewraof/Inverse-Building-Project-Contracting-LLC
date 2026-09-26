@@ -17,4 +17,10 @@
         <field name="state">code</field><field name="code">model._cron_process_runs()</field>
         <field name="interval_number">1</field><field name="interval_type">minutes</field><field name="active">True</field>
     </record>
+    <record id="ir_cron_meta_health_monitor" model="ir.cron">
+        <field name="name">Meta Lead Ads: Health Monitor</field>
+        <field name="model_id" ref="model_meta_health_alert"/>
+        <field name="state">code</field><field name="code">model._cron_health_monitor()</field>
+        <field name="interval_number">5</field><field name="interval_type">minutes</field><field name="active">True</field>
+    </record>
 </odoo>

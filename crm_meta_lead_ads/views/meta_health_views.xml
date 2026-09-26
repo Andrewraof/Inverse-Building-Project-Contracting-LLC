@@ -1,0 +1,243 @@
+<odoo>
+    <!-- Health screen: local/stored data only. Opening these views never
+         calls Meta; the explicit Run Diagnostics button does the remote
+         evidence refresh. Counts only — no message bodies, tokens, PSIDs,
+         raw API responses or contact information. -->
+    <record id="view_meta_account_health_list" model="ir.ui.view">
+        <field name="name">meta.account.health.list</field>
+        <field name="model">meta.account</field>
+        <field name="arch" type="xml">
+            <list create="0">
+                <field name="name"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+                <field name="state" widget="badge"/>
+                <field name="health_level" widget="badge"/>
+                <field name="last_diagnostic_at" optional="show"/>
+                <field name="last_diagnostic_outcome" widget="badge" optional="show"/>
+                <field name="last_webhook_event_at" optional="show"/>
+                <field name="health_due_backlog_count" optional="show"/>
+                <field name="health_failed_ambiguous_count" optional="show"/>
+                <field name="health_outbound_failed_24h" optional="hide"/>
+                <field name="health_open_alert_count" optional="show"/>
+                <field name="health_monitoring_enabled" optional="show"/>
+                <field name="health_last_check_at" optional="hide"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_meta_account_health_form" model="ir.ui.view">
+        <field name="name">meta.account.health.form</field>
+        <field name="model">meta.account</field>
+        <field name="arch" type="xml">
+            <form string="Meta Account Health" create="0">
+                <header>
+                    <button name="action_health_check_now" type="object" string="Check Now (Local)"/>
+                    <button name="action_run_diagnostics" type="object" string="Run Diagnostics (Remote)"/>
+                    <button name="action_health_open_queue" type="object" string="Ingestion Queue"/>
+                </header>
+                <sheet>
+                    <div class="oe_title"><h1><field name="name" readonly="1"/></h1></div>
+                    <group>
+                        <group>
+                            <field name="health_level" widget="badge" readonly="1"/>
+                            <field name="state" widget="badge" readonly="1"/>
+                            <field name="company_id" groups="base.group_multi_company" readonly="1"/>
+                            <field name="error_message" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="health_monitoring_enabled" readonly="1"/>
+                            <field name="health_last_check_at" readonly="1"/>
+                            <field name="last_diagnostic_at" readonly="1"/>
+                            <field name="last_diagnostic_outcome" widget="badge" readonly="1"/>
+                        </group>
+                    </group>
+                    <p class="text-muted">A stale "Last health check" means the monitor cron itself is not
+                        running — an Odoo cron cannot report while Odoo is stopped. A subscription check
+                        proves configuration, not end-to-end message delivery.</p>
+                    <group string="Live Receipt Evidence">
+                        <group>
+                            <field name="last_webhook_event_at" readonly="1"/>
+                            <field name="health_last_live_message_at" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="health_last_live_lead_at" readonly="1"/>
+                        </group>
+                    </group>
+                    <p class="text-muted">Receipt of an authenticated webhook event is recorded separately
+                        from processing success. Empty values mean Unknown — historical imports are never
+                        backfilled into this evidence.</p>
+                    <group string="Ingestion Queue">
+                        <group>
+                            <field name="health_due_backlog_count" readonly="1"/>
+                            <field name="health_oldest_due_minutes" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="health_failed_ambiguous_count" readonly="1"/>
+                            <field name="health_outbound_failed_24h" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Last Sync">
+                        <group>
+                            <field name="health_last_sync_state" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="health_last_sync_at" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Pages">
+                            <field name="page_ids" readonly="1">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="sync_enabled"/>
+                                    <field name="subscription_status" widget="badge"/>
+                                    <field name="subscription_checked_at"/>
+                                    <field name="last_webhook_event_at"/>
+                                    <field name="last_live_message_at"/>
+                                    <field name="last_live_lead_enqueued_at"/>
+                                    <field name="last_sync_at"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Health Alerts">
+                            <field name="alert_ids" readonly="1">
+                                <list>
+                                    <field name="check_code"/>
+                                    <field name="page_id"/>
+                                    <field name="severity" widget="badge"/>
+                                    <field name="state" widget="badge"/>
+                                    <field name="summary_count"/>
+                                    <field name="notification_state"/>
+                                    <field name="first_seen_at"/>
+                                    <field name="last_seen_at"/>
+                                    <field name="resolved_at"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Monitoring Settings">
+                            <group>
+                                <group>
+                                    <field name="health_monitoring_enabled"/>
+                                    <field name="health_monitoring_since" readonly="1"/>
+                                    <field name="health_owner_id"/>
+                                </group>
+                                <group>
+                                    <field name="health_backlog_threshold_minutes"/>
+                                    <field name="health_silence_minutes"/>
+                                    <field name="health_token_expiry_warn_days"/>
+                                </group>
+                            </group>
+                            <p class="text-muted">Monitoring is disabled by default and uses local data
+                                only (no Meta API polling). The expected-traffic silence interval is
+                                optional and clearly uncertain: a quiet page is not necessarily
+                                disconnected — its warning always asks for manual verification.</p>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="action_meta_account_health" model="ir.actions.act_window">
+        <field name="name">Meta Health</field>
+        <field name="res_model">meta.account</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('view_meta_account_health_list')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('view_meta_account_health_form')})]"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No Meta accounts yet. Connect one under Meta Lead Ads → Accounts.
+            </p>
+        </field>
+    </record>
+
+    <record id="view_meta_health_alert_search" model="ir.ui.view">
+        <field name="name">meta.health.alert.search</field>
+        <field name="model">meta.health.alert</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="account_id"/>
+                <field name="page_id"/>
+                <filter name="open" string="Open" domain="[('state','=','open')]"/>
+                <filter name="acknowledged" string="Acknowledged" domain="[('state','=','acknowledged')]"/>
+                <filter name="resolved" string="Resolved" domain="[('state','=','resolved')]"/>
+                <filter name="errors" string="Errors" domain="[('severity','=','error')]"/>
+                <group colspan="16">
+                    <filter string="State" name="group_state" context="{'group_by':'state'}"/>
+                    <filter string="Account" name="group_account" context="{'group_by':'account_id'}"/>
+                    <filter string="Check" name="group_check" context="{'group_by':'check_code'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+    <record id="view_meta_health_alert_list" model="ir.ui.view">
+        <field name="name">meta.health.alert.list</field>
+        <field name="model">meta.health.alert</field>
+        <field name="arch" type="xml">
+            <list create="0">
+                <field name="account_id"/>
+                <field name="page_id"/>
+                <field name="check_code"/>
+                <field name="severity" widget="badge"/>
+                <field name="state" widget="badge"/>
+                <field name="summary_count" optional="show"/>
+                <field name="notification_state" optional="show"/>
+                <field name="first_seen_at" optional="show"/>
+                <field name="last_seen_at" optional="show"/>
+                <field name="resolved_at" optional="hide"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_meta_health_alert_form" model="ir.ui.view">
+        <field name="name">meta.health.alert.form</field>
+        <field name="model">meta.health.alert</field>
+        <field name="arch" type="xml">
+            <form create="0">
+                <header>
+                    <button name="action_acknowledge" type="object" string="Acknowledge" invisible="state != 'open'"/>
+                    <field name="state" widget="statusbar" statusbar_visible="open,acknowledged,resolved"/>
+                </header>
+                <sheet>
+                    <div class="oe_title"><h1><field name="name" readonly="1"/></h1></div>
+                    <group>
+                        <group>
+                            <field name="account_id" readonly="1"/>
+                            <field name="page_id" readonly="1"/>
+                            <field name="check_code" readonly="1"/>
+                            <field name="severity" widget="badge" readonly="1"/>
+                            <field name="company_id" groups="base.group_multi_company" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="summary_count" readonly="1"/>
+                            <field name="notification_state" readonly="1"/>
+                            <field name="first_seen_at" readonly="1"/>
+                            <field name="last_seen_at" readonly="1"/>
+                            <field name="resolved_at" readonly="1"/>
+                        </group>
+                    </group>
+                    <group invisible="not detail">
+                        <field name="detail" readonly="1" nolabel="1"/>
+                    </group>
+                    <p class="text-muted" invisible="notification_state != 'no_recipient'">
+                        No eligible recipient is configured: the monitoring owner must be an active
+                        internal Meta Lead Ads manager with access to this company. This alert stays
+                        visible here until someone eligible is assigned.
+                    </p>
+                </sheet>
+                <chatter reload_on_post="True"/>
+            </form>
+        </field>
+    </record>
+    <record id="action_meta_health_alert" model="ir.actions.act_window">
+        <field name="name">Meta Health Alerts</field>
+        <field name="res_model">meta.health.alert</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_meta_health_alert_search"/>
+        <field name="domain">[('state','in',['open','acknowledged'])]</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No open health alerts. Enable monitoring on a Meta account to start local checks.
+            </p>
+        </field>
+    </record>
+</odoo>
