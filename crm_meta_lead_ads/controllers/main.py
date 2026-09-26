@@ -151,8 +151,10 @@ class MetaLeadController(http.Controller):
                     domain.append(('account_id', '=', account.id))
                 pages = Page.search(domain)
                 for page in pages:
-                    # Receipt evidence is stamped BEFORE processing, so a
-                    # failed enqueue never erases proof of a valid delivery.
+                    # Receipt evidence is stamped BEFORE processing. It is
+                    # persisted only if the request transaction commits: an
+                    # enqueue failure below aborts the whole request and
+                    # the stamp rolls back with it.
                     page._note_live_receipt('event')
                     try:
                         with request.env.cr.savepoint():
@@ -168,6 +170,17 @@ class MetaLeadController(http.Controller):
                             page.account_id.app_secret])
                         _logger.error('Failed to enqueue Meta lead %s for page %s: %s',
                                       _safe_log_value(leadgen_id), page_meta_id, safe_error)
+                        # Durability over acknowledgement: a valid leadgen
+                        # event that was NOT durably queued must not be
+                        # acknowledged with 200. Re-raising aborts the
+                        # request transaction (rolling back the receipt
+                        # stamp above) and answers non-2xx so Meta
+                        # redelivers; the queue's unique leadgen key keeps
+                        # redelivery idempotent. Recovery polling is a
+                        # backstop, never the durability mechanism.
+                        raise RuntimeError(
+                            'Failed to persist Meta lead event for page %s'
+                            % page_meta_id) from None
             for event in entry.get('messaging', []):
                 self._handle_messaging_event(Page, Conversation, account, entry_page_id, event)
         return request.make_response('EVENT_RECEIVED', status=200)

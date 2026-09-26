@@ -34,12 +34,17 @@ class MetaHealthAlert(models.Model):
     """One stored incident per (account, page, check code).
 
     States: open → acknowledged → resolved. A recurring condition reopens
-    the resolved record (new episode) instead of creating a second row;
-    the unique ``alert_key`` plus the savepoint/IntegrityError upsert keep
-    concurrent monitor passes from duplicating an incident. Only state
-    changes post chatter — an unchanged cron pass writes timestamps and
-    counters silently. Notifications use the dedicated Meta Health
-    activity type only; no external contact is ever subscribed.
+    the resolved record (new episode) instead of creating a second row.
+    The unique ``alert_key`` is the hard guarantee against duplicates:
+    under Odoo's REPEATABLE READ isolation, a truly concurrent competing
+    insert surfaces as a serialization failure (40001) that propagates to
+    the caller, and convergence happens in a FRESH transaction (the next
+    cron pass pre-checks and reuses the competitor's row) — an
+    in-transaction re-read cannot see a competitor row committed after
+    this transaction's snapshot. Only state changes post chatter — an
+    unchanged cron pass writes timestamps and counters silently.
+    Notifications use the dedicated Meta Health activity type only; no
+    external contact is ever subscribed.
     """
     _name = 'meta.health.alert'
     _description = 'Meta Connector Health Alert'
@@ -153,9 +158,21 @@ class MetaHealthAlert(models.Model):
 
         An open/acknowledged record is updated silently (no chatter, no
         new activity). A resolved record reopens as a new episode and
-        notifies again. The unique key plus the savepoint/IntegrityError
-        re-read (the pattern used by meta.lead.queue and meta.page) makes
-        the upsert safe against a concurrent monitor pass."""
+        notifies again.
+
+        Concurrency truth under Odoo's REPEATABLE READ: a truly
+        concurrent competing insert blocks on the winner's uncommitted
+        tuple and then raises a serialization failure (40001) — NOT an
+        IntegrityError — which propagates to the caller (the monitor cron
+        catches it in the per-account savepoint and retries on the next
+        pass, in a fresh transaction whose pre-check then sees and reuses
+        the winner's row). The savepoint + IntegrityError re-read below
+        resolves only collisions whose competitor row is visible to THIS
+        transaction's snapshot; a competitor committed after the snapshot
+        is invisible to the re-read, and in that case the re-read finds
+        nothing and the IntegrityError is deliberately re-raised — the
+        collision is resolved by a fresh transaction, never by an
+        in-transaction re-read."""
         page_id = page_id or False
         key = self._alert_key(account, page_id, check_code)
         now = fields.Datetime.now()
@@ -395,7 +412,9 @@ class MetaAccountHealth(models.Model):
     last_webhook_event_at = fields.Datetime(
         readonly=True, copy=False,
         help='Last authenticated inbound webhook event matched to this account. '
-             'Never backfilled from historical imports; empty means Unknown.')
+             'Never backfilled from historical imports; empty means Unknown. '
+             'Persisted only when the webhook request commits — a request '
+             'aborted by a leadgen enqueue failure loses the stamp.')
     alert_ids = fields.One2many('meta.health.alert', 'account_id', string='Health Alerts')
 
     health_level = fields.Selection([
@@ -569,24 +588,39 @@ class MetaPageHealth(models.Model):
     success. These timestamps are stamped only after webhook signature
     validation and a page/account match; they are never backfilled from
     queue received_at (historical imports write that too), so existing
-    pages start Unknown."""
+    pages start Unknown.
+
+    Limitation: a stamp persists only when the webhook request
+    transaction commits. A leadgen enqueue failure aborts the request
+    (non-2xx so Meta redelivers) and the stamp rolls back with it, so a
+    missing stamp never proves non-delivery."""
     _inherit = 'meta.page'
 
     last_webhook_event_at = fields.Datetime(
         readonly=True, copy=False,
-        help='Last authenticated inbound webhook event matched to this page.')
+        help='Last authenticated inbound webhook event matched to this page. '
+             'Persisted only when the webhook request commits.')
     last_live_message_at = fields.Datetime(
         readonly=True, copy=False,
-        help='Last live inbound Messenger message recorded from the webhook.')
+        help='Last live inbound Messenger message recorded from the webhook. '
+             'Persisted only when the webhook request commits.')
     last_live_lead_enqueued_at = fields.Datetime(
         readonly=True, copy=False,
-        help='Last live lead newly enqueued from the webhook.')
+        help='Last live lead newly enqueued from the webhook. '
+             'Persisted only when the webhook request commits.')
 
     def _note_live_receipt(self, kind='event'):
         """Stamp live webhook evidence. ``kind`` is 'event' (any
         authenticated matched event), 'message' (a new live inbound
         message was recorded) or 'lead' (a new live lead was enqueued).
-        Receipt is recorded independently of later processing success."""
+        Receipt is recorded independently of later processing success.
+
+        Limitation: the stamp persists only if the webhook request
+        transaction commits. A leadgen enqueue failure deliberately
+        aborts the request (non-2xx so Meta redelivers), rolling the
+        stamp back with it — a missing stamp therefore never proves the
+        event was not delivered, only that no committed request recorded
+        it."""
         now = fields.Datetime.now()
         vals = {'last_webhook_event_at': now}
         if kind == 'message':

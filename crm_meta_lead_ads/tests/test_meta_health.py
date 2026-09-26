@@ -123,7 +123,12 @@ class MetaHealthBase(TransactionCase):
 class TestMetaHealthEvidence(MetaHealthBase):
     """Live-receipt evidence: stamped only after signature validation and
     a page/account match, and never by historical imports or processing
-    outcomes."""
+    outcomes. Stamps persist only when the webhook request transaction
+    commits — a leadgen enqueue failure aborts the request (non-2xx so
+    Meta redelivers) and the stamp rolls back with it. The messaging path
+    deliberately keeps its catch-and-200 behavior (a failed message
+    recording keeps the receipt and answers 200); that asymmetry is
+    called out in the PR for a separate reviewer decision."""
 
     def _call_webhook(self, secret, payload, account=None, valid=True):
         raw = json.dumps(payload).encode('utf-8')
@@ -231,21 +236,126 @@ class TestMetaHealthEvidence(MetaHealthBase):
         self.assertFalse(self.page.last_webhook_event_at)
         self.assertFalse(self.page.last_live_message_at)
 
-    def test_leadgen_enqueue_failure_keeps_event_receipt(self):
+    def _graph_lead_payload(self, leadgen_id, email):
+        return {
+            'id': leadgen_id, 'created_time': '2026-09-24T10:00:00+0000',
+            'form_id': '200', 'platform': 'facebook', 'is_organic': False,
+            'field_data': [
+                {'name': 'full_name', 'values': ['Test Person']},
+                {'name': 'email', 'values': [email]},
+            ],
+        }
+
+    def _process_queue_rows(self, rows, payloads):
+        def fake_request(method, path, token=None, params=None, **kw):
+            return payloads[path]
+        with patch.object(type(self.account), '_request', side_effect=fake_request):
+            for row in rows:
+                row.process_one()
+        rows.invalidate_recordset()
+
+    def _invalidate_webhook_state(self):
+        self.env['meta.page'].invalidate_model()
+        self.env['meta.account'].invalidate_model()
+        self.env['meta.lead.queue'].invalidate_model()
+
+    def test_leadgen_enqueue_failure_aborts_and_rolls_back(self):
         """A valid, signed, page-matched leadgen event whose enqueue fails
-        must still leave event-receipt evidence (stamped BEFORE processing)
-        and the webhook still answers 200 — the 5-minute recovery polling
-        covers the lost enqueue."""
+        must NOT be acknowledged: the controller raises (a real request
+        answers non-2xx/500 so Meta redelivers) and the whole request
+        transaction rolls back — no queue row AND no receipt stamp. The
+        test savepoint emulates the request-transaction rollback."""
         with patch.object(type(self.env['meta.lead.queue']), 'enqueue_event',
                           side_effect=Exception('boom')):
-            response = self._call_webhook(
-                'secret', self._leadgen_payload('L-9'), account=self.account)
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(self.page.last_webhook_event_at)
-        self.assertTrue(self.account.last_webhook_event_at)
-        self.assertFalse(self.page.last_live_lead_enqueued_at)
+            with self.assertRaises(RuntimeError):
+                with self.env.cr.savepoint():
+                    self._call_webhook(
+                        'secret', self._leadgen_payload('L-9'), account=self.account)
+        self._invalidate_webhook_state()
         self.assertFalse(self.env['meta.lead.queue'].search([('meta_lead_id', '=', 'L-9')]))
+        self.assertFalse(self.page.last_webhook_event_at)
+        self.assertFalse(self.account.last_webhook_event_at)
+        self.assertFalse(self.page.last_live_lead_enqueued_at)
         self.assertFalse(self.page2.last_webhook_event_at)
+
+    def test_leadgen_redelivery_after_failure_saves_exactly_once(self):
+        """Meta's redelivery of the SAME payload after a failed delivery
+        (enqueue now works) saves exactly one queue row per leadgen_id,
+        processing creates exactly one CRM lead, and a further redundant
+        delivery duplicates nothing."""
+        payload = self._leadgen_payload('L-10')
+        with patch.object(type(self.env['meta.lead.queue']), 'enqueue_event',
+                          side_effect=Exception('boom')):
+            with self.assertRaises(RuntimeError):
+                with self.env.cr.savepoint():
+                    self._call_webhook('secret', payload, account=self.account)
+        self._invalidate_webhook_state()
+        self.assertFalse(self.env['meta.lead.queue'].search([('meta_lead_id', '=', 'L-10')]))
+        # Redelivery with enqueue working again.
+        response = self._call_webhook('secret', payload, account=self.account)
+        self.assertEqual(response.status_code, 200)
+        rows = self.env['meta.lead.queue'].search([('meta_lead_id', '=', 'L-10')])
+        self.assertEqual(len(rows), 1)
+        # Meta may also redeliver a 200-acked payload: still exactly one row.
+        response = self._call_webhook('secret', payload, account=self.account)
+        self.assertEqual(response.status_code, 200)
+        rows = self.env['meta.lead.queue'].search([('meta_lead_id', '=', 'L-10')])
+        self.assertEqual(len(rows), 1)
+        # Processing yields exactly one CRM lead for the leadgen id.
+        self._process_queue_rows(rows, {'L-10': self._graph_lead_payload('L-10', 'l10@example.com')})
+        self.assertEqual(rows.match_result, 'created')
+        self.assertEqual(
+            self.env['crm.lead'].search_count([('meta_lead_id', '=', 'L-10')]), 1)
+        self.assertTrue(self.page.last_webhook_event_at)
+        self.assertTrue(self.page.last_live_lead_enqueued_at)
+
+    def test_multi_event_payload_all_or_nothing_and_redelivery(self):
+        """Two leadgen events in ONE payload: if one enqueue fails, the
+        webhook answers non-2xx and NOTHING is persisted (rollback is
+        all-or-nothing — even the event whose enqueue succeeded). The
+        redelivery then saves both exactly once, and processing creates
+        exactly one lead per leadgen_id."""
+        payload = {'object': 'page', 'entry': [{'id': '100', 'changes': [
+            {'field': 'leadgen', 'value': {
+                'leadgen_id': 'L-11', 'page_id': '100', 'form_id': '200'}},
+            {'field': 'leadgen', 'value': {
+                'leadgen_id': 'L-12', 'page_id': '100', 'form_id': '200'}},
+        ]}]}
+        Queue = self.env['meta.lead.queue']
+        real_enqueue = Queue.enqueue_event
+
+        def fail_second(*args, **kwargs):
+            if args[2] == 'L-12':
+                raise Exception('boom')
+            return real_enqueue(*args, **kwargs)
+
+        with patch.object(type(Queue), 'enqueue_event', side_effect=fail_second):
+            with self.assertRaises(RuntimeError):
+                with self.env.cr.savepoint():
+                    self._call_webhook('secret', payload, account=self.account)
+        self._invalidate_webhook_state()
+        # All-or-nothing: even L-11's successful enqueue is rolled back.
+        self.assertFalse(Queue.search([('meta_lead_id', 'in', ['L-11', 'L-12'])]))
+        self.assertFalse(self.page.last_webhook_event_at)
+        # Redelivery with enqueue working: both events saved exactly once.
+        response = self._call_webhook('secret', payload, account=self.account)
+        self.assertEqual(response.status_code, 200)
+        rows = Queue.search([('meta_lead_id', 'in', ['L-11', 'L-12'])])
+        self.assertEqual(len(rows), 2)
+        response = self._call_webhook('secret', payload, account=self.account)
+        self.assertEqual(response.status_code, 200)
+        rows = Queue.search([('meta_lead_id', 'in', ['L-11', 'L-12'])])
+        self.assertEqual(len(rows), 2)
+        # No event lost, no lead duplicated: one CRM lead per leadgen_id.
+        self._process_queue_rows(rows, {
+            'L-11': self._graph_lead_payload('L-11', 'l11@example.com'),
+            'L-12': self._graph_lead_payload('L-12', 'l12@example.com'),
+        })
+        self.assertEqual(set(rows.mapped('match_result')), {'created'})
+        self.assertEqual(
+            self.env['crm.lead'].search_count([('meta_lead_id', '=', 'L-11')]), 1)
+        self.assertEqual(
+            self.env['crm.lead'].search_count([('meta_lead_id', '=', 'L-12')]), 1)
 
     def test_messaging_processing_failure_keeps_event_receipt(self):
         """The messaging path stamps the event receipt before processing;
@@ -383,10 +493,13 @@ class TestMetaHealthMonitor(MetaHealthBase):
         competitor row appears between the pre-check and the insert (the
         pre-check is forced to miss it), the insert collides, and the
         upsert reuses the competitor instead of failing or duplicating.
-        A true two-transaction race test is deferred — the module's only
-        independent-cursor test (TestMetaDedupConcurrency) covers the
-        advisory-lock pattern, while this upsert relies on the same
-        savepoint/IntegrityError idiom already proven for the queue."""
+        This covers a competitor row VISIBLE to the current transaction.
+        Under REPEATABLE READ, a truly concurrent competitor commits after
+        our snapshot: its insert surfaces as a serialization failure (not
+        IntegrityError) and an in-transaction re-read could not see the
+        row anyway — that collision is resolved by a FRESH transaction
+        (next cron pass), proven at the database level by
+        TestMetaHealthUpsertConcurrency."""
         owner = self._make_manager()
         self.account.write({
             'health_monitoring_enabled': True, 'health_owner_id': owner.id})
@@ -790,19 +903,24 @@ class TestMetaHealthBatch(MetaHealthBase):
 class TestMetaHealthUpsertConcurrency(TransactionCase):
     """REAL two-transaction race on the health alert unique key.
 
+    Scope of proof: this test proves the DATABASE-level race only — the
+    unique ``alert_key`` blocks a concurrent inserter, the loser's
+    colliding INSERT fails once the winner commits, and a fresh
+    transaction then sees exactly the winner's row. The ORM-level
+    collision path of ``_upsert_alert`` under true concurrency is NOT
+    proven here: under Odoo's REPEATABLE READ isolation an in-transaction
+    re-read cannot see a competitor row committed after this
+    transaction's snapshot, so the loser's re-search would find nothing
+    and the code deliberately re-raises; convergence happens in a FRESH
+    transaction (the next cron pass / a redelivered webhook), never by an
+    in-transaction re-read. The sequential ORM branch is covered by
+    TestMetaHealthMonitor.test_integrity_error_reuse_path.
+
     Odoo holds its Registry lock while running at-install tests, so ORM
     worker threads cannot acquire it here — the same constraint that
     keeps TestMetaDedupConcurrency's ORM variant skipped. The race
     therefore uses RAW cursors (the pattern the dedup advisory-lock test
-    proves viable under this harness) to demonstrate the database
-    guarantee ``_upsert_alert`` is built on: the unique ``alert_key``
-    blocks a concurrent inserter for the whole overlap, the loser's
-    colliding INSERT fails once the winner commits, and a fresh
-    transaction then sees exactly the winner's row — the row the ORM
-    upsert re-searches and reuses. The ORM-level reuse path itself
-    (savepoint, catch IntegrityError, re-search, silent update) is
-    covered sequentially by
-    TestMetaHealthMonitor.test_integrity_error_reuse_path.
+    proves viable under this harness).
 
     Requires a live PostgreSQL — like every Odoo test in this project it
     could NOT be executed in the local static environment; it is written
