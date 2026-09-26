@@ -151,7 +151,10 @@ class MetaLeadController(http.Controller):
                     domain.append(('account_id', '=', account.id))
                 pages = Page.search(domain)
                 for page in pages:
-                    Queue.enqueue_event(page.company_id, page, leadgen_id, value.get('form_id'), payload)
+                    _queue_rec, created = Queue.enqueue_event(
+                        page.company_id, page, leadgen_id, value.get('form_id'),
+                        payload, return_created=True)
+                    page._note_live_receipt('lead' if created else 'event')
             for event in entry.get('messaging', []):
                 self._handle_messaging_event(Page, Conversation, account, entry_page_id, event)
         return request.make_response('EVENT_RECEIVED', status=200)
@@ -176,6 +179,7 @@ class MetaLeadController(http.Controller):
         _logger.info('Meta messaging event: recipient/page ID %s matched %s Odoo page(s) (mid=%s).',
                      _safe_log_value(page_meta_id), len(pages), _safe_log_value(mid))
         for page in pages:
+            page._note_live_receipt('event')
             try:
                 with request.env.cr.savepoint():
                     Conversation.with_company(page.company_id)._record_inbound_message(page, event)

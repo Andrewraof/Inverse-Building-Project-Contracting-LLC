@@ -28,3 +28,5 @@ access_meta_conversation_link_wizard_user,meta.conversation.link.lead.wizard use
 access_meta_conversation_link_wizard_manager,meta.conversation.link.lead.wizard manager,model_meta_conversation_link_lead_wizard,crm_meta_lead_ads.group_meta_lead_manager,1,1,1,1
 access_meta_ad_insight_user,meta.ad.insight user,model_meta_ad_insight,crm_meta_lead_ads.group_meta_lead_user,1,0,0,0
 access_meta_ad_insight_manager,meta.ad.insight manager,model_meta_ad_insight,crm_meta_lead_ads.group_meta_lead_manager,1,1,1,1
+access_meta_health_alert_user,meta.health.alert user,model_meta_health_alert,crm_meta_lead_ads.group_meta_lead_user,1,0,0,0
+access_meta_health_alert_manager,meta.health.alert manager,model_meta_health_alert,crm_meta_lead_ads.group_meta_lead_manager,1,1,1,1

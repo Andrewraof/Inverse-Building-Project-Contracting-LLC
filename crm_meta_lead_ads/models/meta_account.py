@@ -46,6 +46,11 @@ class MetaAccount(models.Model):
     permissions_checked_at = fields.Datetime(readonly=True, copy=False)
     app_mode = fields.Char(readonly=True, copy=False,
                            default='Unknown — check the Meta App Dashboard')
+    last_diagnostic_at = fields.Datetime(readonly=True, copy=False)
+    last_diagnostic_outcome = fields.Selection([
+        ('success', 'Success'), ('warning', 'Warning'),
+        ('failure', 'Failure'), ('unknown', 'Unknown'),
+    ], readonly=True, copy=False)
 
 
     @api.depends('webhook_key')
@@ -148,27 +153,62 @@ class MetaAccount(models.Model):
 
     def action_run_diagnostics(self):
         """Refresh connection state, granted/missing permissions and the
-        webhook subscription of every page. Never raises: each check
-        writes its own sanitized outcome."""
+        webhook subscription of every page, then aggregate the outcomes
+        into an explicit success/warning/failure/unknown result. Never
+        raises: each check writes its own sanitized outcome, so recorded
+        findings survive even when a later check cannot run. A failed
+        connection or page subscription can never produce a success
+        banner; empty permission evidence stays unknown, not a denial."""
         self.ensure_one()
+        connection_ok = True
         try:
             self.action_test_connection()
         except Exception as exc:
             safe = self._sanitize_error(
                 exc, [self.user_access_token, self.app_secret])
             self.write({'state': 'error', 'error_message': safe})
-        self._fetch_permissions()
+            connection_ok = False
+        granted, missing = self._fetch_permissions()
+        subscription_states = []
         for page in self.with_context(active_test=False).page_ids:
             if page.page_access_token:
-                page._verify_subscription()
+                status, _error = page._verify_subscription()
+                subscription_states.append(status)
+        if not connection_ok or 'failed' in subscription_states:
+            outcome, notif_type = 'failure', 'danger'
+            message = _('Diagnostics found failures: the connection or a page '
+                        'subscription check failed. Check the Diagnostics tab and '
+                        'each page subscription status.')
+        elif missing or 'incomplete' in subscription_states:
+            outcome, notif_type = 'warning', 'warning'
+            message = _('Diagnostics completed with warnings. Check the Diagnostics tab.')
+        elif granted is None and subscription_states:
+            # Connection and subscriptions verified; only the permission
+            # report is unavailable. Unavailable evidence is not a denial.
+            outcome, notif_type = 'warning', 'warning'
+            message = _('Connection and page subscriptions verified, but the '
+                        'permission report was unavailable. Check the Diagnostics tab.')
+        elif granted is None:
+            outcome, notif_type = 'unknown', 'info'
+            message = _('Diagnostics could verify only part of the setup; permission '
+                        'evidence is unknown (an empty result is not a denial). '
+                        'Check the Diagnostics tab.')
+        else:
+            outcome, notif_type = 'success', 'success'
+            message = _('Diagnostics passed: connection, permissions and page '
+                        'subscriptions verified.')
+        self.write({
+            'last_diagnostic_at': fields.Datetime.now(),
+            'last_diagnostic_outcome': outcome,
+        })
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
                 'title': _('Meta Diagnostics'),
-                'message': _('Diagnostics refreshed. Check the Diagnostics tab.'),
-                'type': 'success' if not self.missing_permissions else 'warning',
-                'sticky': False,
+                'message': message,
+                'type': notif_type,
+                'sticky': outcome in ('failure', 'unknown'),
             },
         }
 
