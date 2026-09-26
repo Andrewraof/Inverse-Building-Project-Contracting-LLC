@@ -5,7 +5,7 @@ from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from odoo import fields
-from odoo.exceptions import AccessError, UserError, ValidationError
+from odoo.exceptions import UserError, ValidationError
 from odoo.tests.common import TransactionCase
 
 
@@ -428,5 +428,40 @@ class TestMetaHealthAlerts(TransactionCase):
             'group_ids': [(6, 0, [self.env.ref('base.group_user').id,
                                    self.env.ref('crm_meta_lead_ads.group_meta_lead_user').id])],
         })
-        with self.assertRaises((AccessError, UserError)):
+        with self.assertRaises(UserError):
             alert.with_user(user).action_acknowledge()
+
+
+class TestMetaHealthViews(TransactionCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.account = cls.env['meta.account'].create({
+            'name': 'Health Screen', 'company_id': cls.env.company.id,
+            'app_id': 'screen-app', 'app_secret': 'screen-secret',
+        })
+        cls.page = cls.env['meta.page'].create({
+            'name': 'Health Screen Page', 'company_id': cls.env.company.id,
+            'account_id': cls.account.id, 'meta_page_id': 'screen-page',
+            'page_access_token': 'screen-token',
+        })
+
+    def test_manager_menu_and_local_view_have_no_sensitive_fields(self):
+        menu = self.env.ref('crm_meta_lead_ads.menu_meta_health')
+        manager = self.env.ref('crm_meta_lead_ads.group_meta_lead_manager')
+        self.assertIn(manager, menu.group_ids)
+        view = self.env.ref('crm_meta_lead_ads.view_meta_health_account_form')
+        arch = view.arch_db
+        for secret in ('app_secret', 'user_access_token', 'page_access_token',
+                       'sender_psid', 'message_text', 'fetched_payload'):
+            self.assertNotIn(secret, arch)
+        with patch.object(type(self.account), '_request',
+                          side_effect=AssertionError('health view used Graph')):
+            self.account.read(['health_level', 'health_due_queue_count'])
+
+    def test_drilldowns_keep_company_account_and_page_scope(self):
+        queue = self.account.action_health_queue(page=self.page)
+        messages = self.account.action_health_messages(page=self.page)
+        for action in (queue, messages):
+            self.assertIn(('company_id', '=', self.env.company.id), action['domain'])
+            self.assertIn(('page_id', '=', self.page.id), action['domain'])
