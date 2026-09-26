@@ -837,7 +837,7 @@ class TestMetaHealthDiagnostics(MetaHealthBase):
         self.account.user_access_token = 'usertok'
         with patch.object(type(self.account), '_request',
                           side_effect=self._diag_handler({})):
-            with self.assertRaises((UserError, AccessError)):
+            with self.assertRaises(UserError):
                 self.account.with_user(manager_b).action_run_diagnostics()
         self.assertFalse(self.account.last_diagnostic_at)
         self.assertFalse(self.account.last_diagnostic_outcome)
