@@ -17,6 +17,8 @@
                         <group>
                             <field name="app_mode" readonly="1"/>
                             <field name="permissions_checked_at" readonly="1"/>
+                            <field name="diagnostic_status" readonly="1"/>
+                            <field name="diagnostic_checked_at" readonly="1"/>
                         </group>
                         <group>
                             <field name="granted_permissions" readonly="1"/>

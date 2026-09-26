@@ -1,0 +1,168 @@
+<odoo>
+    <record id="view_meta_health_account_list" model="ir.ui.view">
+        <field name="name">meta.health.account.list</field>
+        <field name="model">meta.account</field>
+        <field name="arch" type="xml">
+            <list string="Meta Connector Health" create="0" delete="0">
+                <field name="name"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+                <field name="health_monitor_enabled"/>
+                <field name="health_level"/>
+                <field name="health_checked_at"/>
+                <field name="diagnostic_status"/>
+                <field name="health_due_queue_count"/>
+                <field name="health_failed_queue_count"/>
+                <field name="health_ambiguous_queue_count"/>
+                <field name="health_failed_outbound_count"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_meta_health_account_form" model="ir.ui.view">
+        <field name="name">meta.health.account.form</field>
+        <field name="model">meta.account</field>
+        <field name="arch" type="xml">
+            <form string="Meta Connector Health" create="0" delete="0">
+                <header>
+                    <button name="action_run_diagnostics" type="object" string="Run Diagnostics"/>
+                    <button name="action_health_queue" type="object" string="Open Ingestion Queue"/>
+                    <button name="action_health_messages" type="object" string="Open Messages"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name" readonly="1"/>
+                            <field name="company_id" readonly="1" groups="base.group_multi_company"/>
+                            <field name="state" readonly="1"/>
+                            <field name="health_level" readonly="1"/>
+                            <field name="health_checked_at" readonly="1"/>
+                        </group>
+                        <group string="Monitoring (opt in)">
+                            <field name="health_monitor_enabled"/>
+                            <field name="health_owner_id"/>
+                            <field name="health_owner_eligible" readonly="1"/>
+                            <field name="health_due_minutes"/>
+                            <field name="health_silence_minutes"/>
+                            <field name="health_token_warning_days"/>
+                            <field name="health_enabled_at" readonly="1"/>
+                        </group>
+                    </group>
+                    <p class="text-muted">Subscription checks are not proof of end-to-end event delivery. A quiet page is not necessarily disconnected. Run Diagnostics explicitly for a remote check; this screen otherwise uses stored local data.</p>
+                    <notebook>
+                        <page string="Current Evidence">
+                            <group>
+                                <group>
+                                    <field name="diagnostic_status" readonly="1"/>
+                                    <field name="diagnostic_checked_at" readonly="1"/>
+                                    <field name="health_last_sync_state" readonly="1"/>
+                                    <field name="health_last_sync_at" readonly="1"/>
+                                </group>
+                                <group>
+                                    <field name="health_due_queue_count" readonly="1"/>
+                                    <field name="health_oldest_due_minutes" readonly="1"/>
+                                    <field name="health_failed_queue_count" readonly="1"/>
+                                    <field name="health_ambiguous_queue_count" readonly="1"/>
+                                    <field name="health_failed_outbound_count" readonly="1"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Pages and Live Webhook Evidence">
+                            <field name="page_ids" readonly="1">
+                                <list create="0" delete="0">
+                                    <field name="name"/>
+                                    <field name="active"/>
+                                    <field name="sync_enabled"/>
+                                    <field name="subscription_status"/>
+                                    <field name="subscription_checked_at"/>
+                                    <field name="last_live_webhook_at"/>
+                                    <field name="last_live_lead_enqueued_at"/>
+                                    <field name="last_live_message_recorded_at"/>
+                                    <field name="last_sync_at"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Incidents">
+                            <field name="health_alert_ids" readonly="1">
+                                <list create="0" delete="0">
+                                    <field name="name"/>
+                                    <field name="page_id"/>
+                                    <field name="severity"/>
+                                    <field name="state"/>
+                                    <field name="count"/>
+                                    <field name="first_seen_at"/>
+                                    <field name="last_seen_at"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_meta_health_accounts" model="ir.actions.act_window">
+        <field name="name">Meta Connector Health</field>
+        <field name="res_model">meta.account</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_meta_health_accounts_list" model="ir.actions.act_window.view">
+        <field name="act_window_id" ref="action_meta_health_accounts"/>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="view_meta_health_account_list"/>
+        <field name="sequence">1</field>
+    </record>
+    <record id="action_meta_health_accounts_form" model="ir.actions.act_window.view">
+        <field name="act_window_id" ref="action_meta_health_accounts"/>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_meta_health_account_form"/>
+        <field name="sequence">2</field>
+    </record>
+
+    <record id="view_meta_health_alert_list" model="ir.ui.view">
+        <field name="name">meta.health.alert.list</field>
+        <field name="model">meta.health.alert</field>
+        <field name="arch" type="xml">
+            <list string="Meta Health Incidents" create="0" delete="0">
+                <field name="name"/>
+                <field name="account_id"/>
+                <field name="page_id"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+                <field name="severity"/>
+                <field name="state"/>
+                <field name="count"/>
+                <field name="last_seen_at"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_meta_health_alert_form" model="ir.ui.view">
+        <field name="name">meta.health.alert.form</field>
+        <field name="model">meta.health.alert</field>
+        <field name="arch" type="xml">
+            <form string="Meta Health Incident" create="0" delete="0">
+                <header>
+                    <button name="action_acknowledge" type="object" string="Acknowledge" invisible="state != 'open'"/>
+                    <button name="action_resolve" type="object" string="Resolve" invisible="state == 'resolved'"/>
+                </header>
+                <sheet>
+                    <group>
+                        <field name="name" readonly="1"/>
+                        <field name="company_id" readonly="1" groups="base.group_multi_company"/>
+                        <field name="account_id" readonly="1"/>
+                        <field name="page_id" readonly="1"/>
+                        <field name="severity" readonly="1"/>
+                        <field name="state" readonly="1"/>
+                        <field name="count" readonly="1"/>
+                        <field name="first_seen_at" readonly="1"/>
+                        <field name="last_seen_at" readonly="1"/>
+                        <field name="resolved_at" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="action_meta_health_alerts" model="ir.actions.act_window">
+        <field name="name">Meta Health Incidents</field>
+        <field name="res_model">meta.health.alert</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>

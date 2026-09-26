@@ -2,7 +2,7 @@ name: Odoo 19 Meta connector tests
 
 on:
   push:
-    branches: ["batch2-*"]
+    branches: ["batch2-*", "batch3a-*"]
   workflow_dispatch:
   workflow_call:
 
@@ -37,6 +37,52 @@ jobs:
             odoo:19.0 \
             --database=meta_connector_test \
             --init=crm_meta_lead_ads \
+            --test-tags=/crm_meta_lead_ads \
+            --stop-after-init \
+            --without-demo=all \
+            --db_host=127.0.0.1 \
+            --db_user=odoo \
+            --log-level=test
+      - name: Upgrade and retest connector on the same temporary database
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
+            -e HOST=127.0.0.1 -e USER=odoo \
+            odoo:19.0 \
+            --database=meta_connector_test \
+            --update=crm_meta_lead_ads \
+            --test-tags=/crm_meta_lead_ads \
+            --stop-after-init \
+            --without-demo=all \
+            --db_host=127.0.0.1 \
+            --db_user=odoo \
+            --log-level=test
+      - name: Prepare previous released connector for upgrade test
+        run: |
+          git fetch --depth=1 origin main
+          mkdir -p "$RUNNER_TEMP/meta-previous"
+          git archive FETCH_HEAD crm_meta_lead_ads | tar -x -C "$RUNNER_TEMP/meta-previous"
+      - name: Install previous released connector on a separate temporary database
+        run: |
+          docker run --rm --network host \
+            -v "$RUNNER_TEMP/meta-previous/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
+            -e HOST=127.0.0.1 -e USER=odoo \
+            odoo:19.0 \
+            --database=meta_upgrade_from_main \
+            --init=crm_meta_lead_ads \
+            --stop-after-init \
+            --without-demo=all \
+            --db_host=127.0.0.1 \
+            --db_user=odoo \
+            --log-level=test
+      - name: Upgrade previous released connector to this branch and test
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
+            -e HOST=127.0.0.1 -e USER=odoo \
+            odoo:19.0 \
+            --database=meta_upgrade_from_main \
+            --update=crm_meta_lead_ads \
             --test-tags=/crm_meta_lead_ads \
             --stop-after-init \
             --without-demo=all \

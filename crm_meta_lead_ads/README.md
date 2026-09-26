@@ -49,6 +49,29 @@ Technical module: `crm_meta_lead_ads`
   Live mode + App Review (`pages_messaging`) are required for customers who
   are not app admins, and Meta policies may change.
 
+## Connector Health (Batch 3A)
+
+- CRM > Meta Lead Ads > Health is visible to Meta Lead Ads managers only.
+  Opening it reads local Odoo evidence; **Run Diagnostics** is the explicit
+  remote Graph API check. Subscription checks are not proof of end-to-end
+  webhook delivery.
+- Authenticated live webhook receipt, successful lead enqueue and successful
+  message recording are separate timestamps. Historical imports do not fill
+  these fields, so old pages initially show Unknown rather than a fabricated
+  live connection.
+- Monitoring is **off by default**, including upgrades. A manager may opt in
+  per account, select an active internal Meta manager with company access as
+  owner, and adjust overdue queue (15 minutes), optional traffic silence
+  (disabled by default) and known-token-expiry (7 days) thresholds.
+- The five-minute local-only assessment records scoped numeric counts and
+  deduplicated internal incidents. It does not call Meta, resend Messenger
+  replies, expose customer messages or tokens, or notify when the owner loses
+  eligibility. Acknowledging suppresses repeat reminders for that episode;
+  recovery completes only its dedicated Meta Health activity.
+- A quiet page is not classified as disconnected unless an operator explicitly
+  enables an expected-traffic silence warning. A stopped Odoo host cannot run
+  its own cron; external host monitoring remains separate.
+
 ## Installation
 1. Copy `crm_meta_lead_ads` into an Odoo 19 addons path.
 2. Restart Odoo and update Apps List.
