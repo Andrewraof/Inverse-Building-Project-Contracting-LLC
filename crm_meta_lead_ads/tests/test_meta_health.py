@@ -460,6 +460,8 @@ class TestMetaHealthViews(TransactionCase):
             self.account.read(['health_level', 'health_due_queue_count'])
 
     def test_drilldowns_keep_company_account_and_page_scope(self):
+        self.env.user.group_ids = [(4, self.env.ref(
+            'crm_meta_lead_ads.group_meta_lead_manager').id)]
         queue = self.account.action_health_queue(page=self.page)
         messages = self.account.action_health_messages(page=self.page)
         for action in (queue, messages):
