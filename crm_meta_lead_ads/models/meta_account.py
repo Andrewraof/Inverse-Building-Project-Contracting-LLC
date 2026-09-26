@@ -158,19 +158,28 @@ class MetaAccount(models.Model):
         raises: each check writes its own sanitized outcome, so recorded
         findings survive even when a later check cannot run. A failed
         connection or page subscription can never produce a success
-        banner; empty permission evidence stays unknown, not a denial."""
+        banner; empty permission evidence stays unknown, not a denial.
+
+        Access: the interactive guard runs FIRST (Meta manager group +
+        company membership, verified on the caller's own recordset);
+        ONLY THEN does the body escalate with sudo, which the protected
+        reads require (tokens/app_secret are base.group_system-only).
+        The returned notification is static text — no secrets and no
+        other company's data ever reach the caller."""
         self.ensure_one()
+        self._check_health_manager_access()
+        account = self.sudo()
         connection_ok = True
         try:
-            self.action_test_connection()
+            account.action_test_connection()
         except Exception as exc:
-            safe = self._sanitize_error(
-                exc, [self.user_access_token, self.app_secret])
-            self.write({'state': 'error', 'error_message': safe})
+            safe = account._sanitize_error(
+                exc, [account.user_access_token, account.app_secret])
+            account.write({'state': 'error', 'error_message': safe})
             connection_ok = False
-        granted, missing = self._fetch_permissions()
+        granted, missing = account._fetch_permissions()
         subscription_states = []
-        for page in self.with_context(active_test=False).page_ids:
+        for page in account.with_context(active_test=False).page_ids:
             if page.page_access_token:
                 status, _error = page._verify_subscription()
                 subscription_states.append(status)
@@ -197,7 +206,7 @@ class MetaAccount(models.Model):
             outcome, notif_type = 'success', 'success'
             message = _('Diagnostics passed: connection, permissions and page '
                         'subscriptions verified.')
-        self.write({
+        account.write({
             'last_diagnostic_at': fields.Datetime.now(),
             'last_diagnostic_outcome': outcome,
         })

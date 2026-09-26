@@ -659,6 +659,41 @@ class TestMetaHealthMonitor(MetaHealthBase):
         self.assertEqual(alert.notification_state, 'no_recipient')
         self.assertFalse(self._health_activities(alert))
 
+    def test_notification_retries_after_owner_becomes_eligible(self):
+        """An open alert stuck on 'no_recipient' must notify the owner
+        once he is fixed — exactly once per episode, and never again
+        after the alert is acknowledged."""
+        owner = self._make_manager()
+        self.account.write({
+            'health_monitoring_enabled': True, 'health_owner_id': owner.id,
+            'state': 'error', 'error_message': 'recorded failure'})
+        owner.active = False
+        self._run_monitor()
+        alert = self._alerts_for(self.account, 'account_error')
+        self.assertEqual(len(alert), 1)
+        self.assertEqual(alert.state, 'open')
+        self.assertEqual(alert.notification_state, 'no_recipient')
+        self.assertFalse(self._health_activities(alert))
+        # The owner is fixed while the episode is still open: the next
+        # pass retries the notification instead of waiting for a new
+        # episode.
+        owner.active = True
+        self._run_monitor()
+        self.assertEqual(alert.notification_state, 'notified')
+        activities = self._health_activities(alert)
+        self.assertEqual(len(activities), 1)
+        self.assertEqual(activities.user_id, owner)
+        # Steady state: further passes create nothing new.
+        self._run_monitor()
+        self._run_monitor()
+        self.assertEqual(len(self._health_activities(alert)), 1)
+        # Acknowledge: the alert stays visible and is never re-notified
+        # for this episode.
+        alert.with_user(owner).action_acknowledge()
+        self.assertEqual(alert.state, 'acknowledged')
+        self._run_monitor()
+        self.assertEqual(len(self._health_activities(alert)), 1)
+
     def test_secret_marker_never_reaches_alert_or_activity(self):
         marker = 'tok-HEALTH-MARKER-1'
         owner = self._make_manager()
@@ -713,11 +748,15 @@ class TestMetaHealthDiagnostics(MetaHealthBase):
             raise AssertionError('unexpected Graph path %s' % path)
         return handler
 
-    def _run_diagnostics(self, behavior):
+    def _run_diagnostics(self, behavior, user=None):
         self.account.user_access_token = 'usertok'
+        if user is None:
+            # The action is manager-only; run it as a Meta manager (NOT
+            # as admin — admin lacks group_meta_lead_manager).
+            user = self._make_manager(login='diag_manager')
         with patch.object(type(self.account), '_request',
                           side_effect=self._diag_handler(behavior)):
-            return self.account.action_run_diagnostics()
+            return self.account.with_user(user).action_run_diagnostics()
 
     def test_failed_connection_cannot_be_success(self):
         result = self._run_diagnostics({'connection_fail': True})
@@ -760,6 +799,75 @@ class TestMetaHealthDiagnostics(MetaHealthBase):
         self.assertEqual(self.account.granted_permissions, 'leads_retrieval')
         self.assertEqual(self.account.permissions_checked_at, checked_at)
         self.assertNotEqual(self.account.last_diagnostic_outcome, 'failure')
+
+    def test_diagnostics_manager_without_system_group_succeeds(self):
+        """The guard passes on the caller's OWN groups; only then does the
+        body escalate. A Meta manager WITHOUT base.group_system must run
+        diagnostics end-to-end and get the correct outcome fields."""
+        manager = self._make_manager(login='diag_nosystem_mgr')
+        self.assertTrue(manager.has_group(
+            'crm_meta_lead_ads.group_meta_lead_manager'))
+        self.assertFalse(manager.has_group('base.group_system'))
+        result = self._run_diagnostics({}, user=manager)
+        self.assertEqual(result['params']['type'], 'success')
+        self.assertEqual(self.account.last_diagnostic_outcome, 'success')
+        self.assertTrue(self.account.last_diagnostic_at)
+        self.assertEqual(self.account.state, 'connected')
+
+    def test_diagnostics_plain_user_rejected(self):
+        """A plain Meta user (not manager) gets a clean UserError BEFORE
+        any sudo escalation; no findings are written."""
+        user = self._make_user(
+            'diag_plain_user', self.company, 'crm_meta_lead_ads.group_meta_lead_user')
+        self.account.user_access_token = 'usertok'
+        with patch.object(type(self.account), '_request',
+                          side_effect=self._diag_handler({})):
+            with self.assertRaises(UserError):
+                self.account.with_user(user).action_run_diagnostics()
+        self.assertFalse(self.account.last_diagnostic_at)
+        self.assertFalse(self.account.last_diagnostic_outcome)
+        self.assertEqual(self.account.state, 'draft')
+
+    def test_diagnostics_cross_company_manager_rejected(self):
+        """A manager of company B cannot run diagnostics on company A's
+        account (e.g. a guessed id over RPC): clean error, no findings."""
+        other_company = self.env['res.company'].create({'name': 'Diag Other Co'})
+        manager_b = self._make_manager(
+            login='diag_cross_mgr', companies=[other_company], company=other_company)
+        self.account.user_access_token = 'usertok'
+        with patch.object(type(self.account), '_request',
+                          side_effect=self._diag_handler({})):
+            with self.assertRaises((UserError, AccessError)):
+                self.account.with_user(manager_b).action_run_diagnostics()
+        self.assertFalse(self.account.last_diagnostic_at)
+        self.assertFalse(self.account.last_diagnostic_outcome)
+        self.assertEqual(self.account.state, 'draft')
+
+    def test_diagnostics_never_leak_secret_markers(self):
+        """Token/secret values inside a raw Graph error must never reach
+        stored fields or the returned notification."""
+        token_marker = 'tok-DIAG-MARKER-1'
+        secret_marker = 'secret-DIAG-MARKER-2'
+        self.account.write({
+            'user_access_token': token_marker, 'app_secret': secret_marker,
+        })
+        manager = self._make_manager(login='diag_leak_mgr')
+
+        def boom(method, path, token=None, params=None, **kw):
+            raise Exception(
+                'Graph error 190: invalid token %s using %s'
+                % (token_marker, secret_marker))
+
+        with patch.object(type(self.account), '_request', side_effect=boom):
+            result = self.account.with_user(manager).action_run_diagnostics()
+        self.assertEqual(self.account.last_diagnostic_outcome, 'failure')
+        self.assertEqual(self.account.state, 'error')
+        for stored in (self.account.error_message,
+                       self.page.subscription_error):
+            self.assertNotIn(token_marker, stored or '')
+            self.assertNotIn(secret_marker, stored or '')
+        self.assertNotIn(token_marker, str(result))
+        self.assertNotIn(secret_marker, str(result))
 
 
 class TestMetaHealthAccess(MetaHealthBase):

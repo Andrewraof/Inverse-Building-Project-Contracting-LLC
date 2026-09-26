@@ -97,8 +97,9 @@ class MetaHealthAlert(models.Model):
         return self.env.ref('crm_meta_lead_ads.mail_activity_data_meta_health')
 
     def _notify_owner(self):
-        """At most one open Meta Health activity per incident, only at the
-        start of an episode (create or reopen after recovery)."""
+        """At most one open Meta Health activity per incident. Called at
+        the start of an episode (create or reopen after recovery) and on
+        retry while an open alert is still 'pending'/'no_recipient'."""
         activity_type = self._health_activity_type()
         model_id = self.env['ir.model']._get_id(self._name)
         for alert in self:
@@ -157,8 +158,11 @@ class MetaHealthAlert(models.Model):
         """Keep exactly one incident per (account, page, check code).
 
         An open/acknowledged record is updated silently (no chatter, no
-        new activity). A resolved record reopens as a new episode and
-        notifies again.
+        new activity) — except that an OPEN alert whose notification is
+        still unsent ('pending'/'no_recipient', e.g. the owner was
+        ineligible earlier) retries the notification, so a fixed owner
+        gets exactly one activity without waiting for a new episode.
+        A resolved record reopens as a new episode and notifies again.
 
         Concurrency truth under Odoo's REPEATABLE READ: a truly
         concurrent competing insert blocks on the winner's uncommitted
@@ -192,6 +196,14 @@ class MetaHealthAlert(models.Model):
                 existing._notify_owner()
             else:
                 existing.write(vals)
+                if (existing.state == 'open'
+                        and existing.notification_state in ('pending', 'no_recipient')):
+                    # The owner may have been fixed since this episode
+                    # started (e.g. reactivated): retry the notification.
+                    # _notify_owner keeps the at-most-one-activity
+                    # invariant, and acknowledged alerts are never
+                    # re-notified for the same episode.
+                    existing._notify_owner()
             return existing
         label = dict(CHECK_CODES).get(check_code, check_code)
         vals = {
@@ -534,14 +546,18 @@ class MetaAccountHealth(models.Model):
                 raise ValidationError(_('The token-expiry warning interval cannot be negative.'))
 
     def _check_health_manager_access(self):
-        """Guard every public health action: the caller must be a Meta
-        manager AND the account's company must be inside the caller's
-        allowed companies BEFORE any sudo escalation happens below. The
-        company read is the only escalation here and returns an id, so a
-        cross-company RPC call fails with a clean UserError instead of
-        silently running sudo-scoped queries on another company's data."""
+        """Guard every public, interactive Meta action: the caller must be
+        a Meta manager AND every account in ``self`` must belong to a
+        company in the caller's allowed companies BEFORE any sudo
+        escalation happens. The company read is the only escalation here
+        and returns an id, so a cross-company RPC call fails with a clean
+        UserError instead of silently running sudo-scoped queries on
+        another company's data. System contexts (crons, superuser) bypass
+        the interactive guard — they are already all-powerful."""
+        if self.env.is_superuser():
+            return
         if not self.env.user.has_group('crm_meta_lead_ads.group_meta_lead_manager'):
-            raise UserError(_('Only Meta Lead Ads managers can use health actions.'))
+            raise UserError(_('Only Meta Lead Ads managers can run this action.'))
         allowed = self.env.user.company_ids
         for account in self:
             if account.sudo().company_id not in allowed:
