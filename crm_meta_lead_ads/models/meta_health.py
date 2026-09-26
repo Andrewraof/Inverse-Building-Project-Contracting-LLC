@@ -93,7 +93,13 @@ class MetaHealthAlert(models.Model):
     def _notify_owner_once(self):
         self.ensure_one()
         account = self.account_id
-        if not account._health_owner_eligible() or self._dedicated_activities():
+        activities = self._dedicated_activities()
+        if not account._health_owner_eligible():
+            activities.unlink()
+            return
+        if activities:
+            if activities[:1].user_id != account.health_owner_id:
+                activities[:1].write({'user_id': account.health_owner_id.id})
             return
         self.env['mail.activity'].sudo().create({
             'res_model_id': self.env['ir.model']._get_id(self._name),
@@ -142,6 +148,8 @@ class MetaHealthAlert(models.Model):
             values.update({'state': 'open', 'first_seen_at': now,
                            'resolved_at': False})
         alert.sudo().write(values)
+        if not account._health_owner_eligible():
+            alert._dedicated_activities().unlink()
         if alert.state == 'open':
             alert._notify_owner_once()
         return alert

@@ -284,16 +284,35 @@ class MetaAccount(models.Model):
                          ('page_id', 'in', page_ids)]
         if page_ids:
             Queue = self.env['meta.lead.queue'].sudo()
-            due = Queue.search(company_scope + ['|', '&',
-                ('state', 'in', ('pending', 'retry')), '|',
-                ('next_retry_at', '=', False), ('next_retry_at', '<=', now),
-                ('state', '=', 'processing')])
-            result['due_queue_count'] = len(due)
-            if due:
-                oldest = min(due.mapped('received_at'))
-                result['oldest_due_minutes'] = max(0, int((now - oldest).total_seconds() / 60))
-                if result['oldest_due_minutes'] >= self.health_due_minutes:
-                    issue('queue_overdue', count=len(due))
+            # Aggregate in PostgreSQL: neither the cron nor the form should
+            # load a large backlog into an ORM recordset. A retry's age starts
+            # when it becomes due; processing age starts at last progress.
+            self.env.cr.execute("""
+                WITH due AS (
+                    SELECT CASE
+                        WHEN state = 'processing'
+                            THEN GREATEST(received_at, COALESCE(write_date, received_at))
+                        WHEN state = 'retry'
+                            THEN GREATEST(received_at, COALESCE(next_retry_at, received_at))
+                        ELSE received_at END AS due_since
+                    FROM meta_lead_queue
+                    WHERE company_id = %s AND page_id = ANY(%s)
+                      AND (state = 'processing' OR
+                           (state IN ('pending', 'retry') AND
+                            (next_retry_at IS NULL OR next_retry_at <= %s)))
+                )
+                SELECT COUNT(*), MIN(due_since),
+                       COUNT(*) FILTER (WHERE due_since <= %s)
+                FROM due
+            """, (self.company_id.id, page_ids, now,
+                  now - timedelta(minutes=self.health_due_minutes)))
+            due_count, oldest, overdue = self.env.cr.fetchone()
+            result['due_queue_count'] = due_count
+            if oldest:
+                result['oldest_due_minutes'] = max(
+                    0, int((now - oldest).total_seconds() / 60))
+            if overdue:
+                issue('queue_overdue', count=overdue)
             for state, key, code in (
                     ('failed', 'failed_queue_count', 'queue_failed'),
                     ('ambiguous', 'ambiguous_queue_count', 'queue_ambiguous')):
