@@ -1,11 +1,13 @@
 import hashlib
 import hmac
 import json
+import threading
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
-from odoo import fields
-from odoo.exceptions import UserError, ValidationError
+from odoo import SUPERUSER_ID, api, fields
+from odoo.exceptions import AccessError, UserError, ValidationError
+from odoo.modules.registry import Registry
 from odoo.tests.common import TransactionCase
 
 
@@ -430,6 +432,116 @@ class TestMetaHealthAlerts(TransactionCase):
         })
         with self.assertRaises(UserError):
             alert.with_user(user).action_acknowledge()
+
+    def test_recovery_preserves_unrelated_todo(self):
+        self.account.state = 'error'
+        self.account._cron_assess_health(limit=5)
+        alert = self._alerts().filtered(lambda a: a.check_code == 'account_disconnected')
+        todo = self.env['mail.activity'].create({
+            'res_model_id': self.env['ir.model']._get_id('meta.health.alert'),
+            'res_id': alert.id,
+            'activity_type_id': self.env.ref('mail.mail_activity_data_todo').id,
+            'user_id': self.manager.id,
+            'summary': 'Unrelated To-Do',
+            'date_deadline': fields.Date.today(),
+        })
+        self.account.state = 'connected'
+        self.account._cron_assess_health(limit=5)
+        self.assertTrue(todo.exists())
+        self.assertFalse(self._activities(alert))
+
+    def test_other_company_incident_is_not_readable(self):
+        foreign = self.env['res.company'].create({'name': 'Alert Foreign Company'})
+        account = self.env['meta.account'].with_company(foreign).create({
+            'name': 'Foreign Alert Account', 'company_id': foreign.id,
+            'app_id': 'foreign-alert-app', 'app_secret': 'foreign-alert-secret',
+        })
+        now = fields.Datetime.now()
+        alert = self.env['meta.health.alert'].sudo().create({
+            'name': 'Known token expiry', 'company_id': foreign.id,
+            'account_id': account.id, 'check_code': 'token_expired',
+            'severity': 'error', 'first_seen_at': now, 'last_seen_at': now,
+        })
+        with self.assertRaises(AccessError):
+            alert.with_user(self.manager).read(['name'])
+
+
+class TestMetaHealthConcurrency(TransactionCase):
+    def test_account_row_lock_serializes_incident_key(self):
+        """Independent committed fixture and two real PostgreSQL transactions.
+
+        Workers use raw cursors because Odoo's at-install registry lock can
+        block ORM calls from worker threads. Sequential tests cover the ORM
+        reconcile path itself.
+        """
+        registry = Registry(self.env.cr.dbname)
+        company_id = self.env.company.id
+        with registry.cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            account = env['meta.account'].create({
+                'name': 'Parallel Health', 'company_id': company_id,
+                'app_id': 'parallel-health-app', 'app_secret': 'parallel-secret',
+            })
+            account_id = account.id
+            cr.commit()
+        first_locked = threading.Event()
+        second_done = threading.Event()
+        release_first = threading.Event()
+        errors = []
+
+        def worker(first):
+            try:
+                with registry.cursor() as cr:
+                    cr.execute('SELECT id FROM meta_account WHERE id=%s FOR UPDATE',
+                               (account_id,))
+                    if first:
+                        first_locked.set()
+                        release_first.wait(timeout=30)
+                    cr.execute('SELECT count(*) FROM meta_health_alert WHERE '
+                               'account_id=%s AND page_key=0 AND check_code=%s',
+                               (account_id, 'account_disconnected'))
+                    if cr.fetchone()[0] == 0:
+                        cr.execute('INSERT INTO meta_health_alert '
+                                   '(name, company_id, account_id, page_key, check_code, '
+                                   'severity, state, count, first_seen_at, last_seen_at, '
+                                   'create_uid, create_date, write_uid, write_date) '
+                                   'VALUES (%s,%s,%s,0,%s,%s,%s,1,now(),now(),1,now(),1,now())',
+                                   ('Account connection needs attention',
+                                    company_id, account_id,
+                                    'account_disconnected', 'error', 'open'))
+                    cr.commit()
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                if not first:
+                    second_done.set()
+
+        first = threading.Thread(target=worker, args=(True,))
+        second = threading.Thread(target=worker, args=(False,))
+        try:
+            first.start()
+            self.assertTrue(first_locked.wait(timeout=30), errors)
+            second.start()
+            self.assertFalse(second_done.wait(timeout=1),
+                             'Second transaction bypassed account row lock')
+            release_first.set()
+            self.assertTrue(second_done.wait(timeout=30), errors)
+            with registry.cursor() as cr:
+                cr.execute('SELECT count(*) FROM meta_health_alert WHERE '
+                           'account_id=%s AND check_code=%s',
+                           (account_id, 'account_disconnected'))
+                self.assertEqual(cr.fetchone()[0], 1)
+        finally:
+            release_first.set()
+            first.join(timeout=30)
+            if second.ident:
+                second.join(timeout=30)
+            with registry.cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                env['meta.health.alert'].search([('account_id', '=', account_id)]).unlink()
+                env['meta.account'].browse(account_id).unlink()
+                cr.commit()
+        self.assertFalse(errors)
 
 
 class TestMetaHealthViews(TransactionCase):
