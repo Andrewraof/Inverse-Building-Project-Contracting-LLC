@@ -1,4 +1,5 @@
 from . import meta_account
+from . import meta_health
 from . import meta_page
 from . import meta_form
 from . import meta_form_mapping

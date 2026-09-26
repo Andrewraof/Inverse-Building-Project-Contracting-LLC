@@ -12,6 +12,7 @@
         'data/utm_data.xml',
         'data/ir_cron_data.xml',
         'data/ir_cron_update.xml',
+        'data/meta_health_activity.xml',
         'views/meta_account_views.xml',
         'views/meta_page_views.xml',
         'views/meta_form_views.xml',

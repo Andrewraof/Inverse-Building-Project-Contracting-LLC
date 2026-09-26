@@ -1,0 +1,8 @@
+<odoo noupdate="1">
+    <record id="mail_activity_type_meta_health" model="mail.activity.type">
+        <field name="name">Meta Connector Health</field>
+        <field name="summary">Review Meta connector health incident</field>
+        <field name="category">default</field>
+        <field name="res_model_id" ref="model_meta_health_alert"/>
+    </record>
+</odoo>
