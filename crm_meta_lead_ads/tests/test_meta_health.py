@@ -224,6 +224,7 @@ class TestMetaDiagnostics(TransactionCase):
             'company_id': self.env.company.id,
             'company_ids': [(6, 0, [self.env.company.id])],
             'group_ids': [(6, 0, [self.env.ref('base.group_user').id,
+                                   self.env.ref('base.group_system').id,
                                    self.env.ref('crm_meta_lead_ads.group_meta_lead_user').id])],
         })
         with patch.object(type(self.account), '_request',
