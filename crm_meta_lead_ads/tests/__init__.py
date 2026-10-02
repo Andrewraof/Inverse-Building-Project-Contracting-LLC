@@ -11,3 +11,4 @@ from . import test_meta_queue_actions
 from . import test_meta_reports
 from . import test_meta_conversation_linking
 from . import test_meta_crm_visibility_export
+from . import test_meta_contact_review

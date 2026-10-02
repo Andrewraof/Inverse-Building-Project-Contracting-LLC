@@ -372,6 +372,9 @@ class MetaLeadQueue(models.Model):
                         graph_account_error = account.error_message or ''
                     raise
                 self.fetched_payload = payload
+                if self._requires_contact_review(payload):
+                    self._save_review_contact(payload)
+                    return
                 lead, outcome, detail = self._resolve_crm_lead(payload)
                 self.write({
                     'state': self.OUTCOME_STATE[outcome], 'match_result': outcome,

@@ -15,3 +15,4 @@ from . import meta_conversation_link_lead_wizard
 from . import meta_ad_insight
 from . import crm_lead
 from . import res_config_settings
+from . import meta_contact_review

@@ -1,0 +1,29 @@
+<odoo>
+    <record id="view_meta_review_contact_form" model="ir.ui.view">
+        <field name="name">res.partner.meta.review.form</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="inside">
+                <group string="Meta Management Review" invisible="not meta_review_state">
+                    <field name="meta_review_state"/>
+                    <field name="meta_review_queue_id" groups="crm_meta_lead_ads.group_meta_contact_reviewer,base.group_system"/>
+                    <field name="meta_review_user_id" readonly="meta_review_state != 'pending'" groups="crm_meta_lead_ads.group_meta_contact_reviewer,base.group_system"/>
+                    <field name="meta_review_lead_id"/>
+                    <field name="meta_reviewed_by"/>
+                    <field name="meta_reviewed_at"/>
+                    <button name="action_meta_approve" type="object" string="Approve and Create Lead" class="btn-primary" invisible="meta_review_state != 'pending'" groups="crm_meta_lead_ads.group_meta_contact_reviewer,base.group_system" confirm="Approve this enquiry and release it to the selected salesperson?"/>
+                    <button name="action_meta_reject" type="object" string="Reject" invisible="meta_review_state != 'pending'" groups="crm_meta_lead_ads.group_meta_contact_reviewer,base.group_system"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+    <record id="action_meta_contacts_review" model="ir.actions.act_window">
+        <field name="name">Meta Contacts — Pending Review</field>
+        <field name="res_model">res.partner</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('meta_review_state', '=', 'pending')]</field>
+        <field name="context">{'create': False}</field>
+    </record>
+    <menuitem id="menu_meta_contacts_review" name="Contacts — Management Review" parent="menu_meta_root" action="action_meta_contacts_review" sequence="2" groups="crm_meta_lead_ads.group_meta_contact_reviewer,base.group_system"/>
+</odoo>
