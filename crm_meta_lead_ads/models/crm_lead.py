@@ -63,7 +63,7 @@ class CrmLead(models.Model):
                 grouped[message.res_id].append(message)
         return grouped
 
-    @api.depends_context('uid')
+    @api.depends_context('uid', 'company', 'allowed_company_ids', 'lang')
     @api.depends('description', 'message_ids.body', 'message_ids.subtype_id')
     def _compute_meta_export_notes(self):
         messages = self._meta_export_messages_by_lead([
@@ -80,7 +80,7 @@ class CrmLead(models.Model):
                         message.author_id.name or '', body))
             lead.meta_export_notes = '\n'.join(part for part in parts if part)
 
-    @api.depends_context('uid')
+    @api.depends_context('uid', 'company', 'allowed_company_ids', 'lang')
     @api.depends('activity_ids.summary', 'activity_ids.note',
                  'activity_ids.date_deadline', 'activity_ids.user_id',
                  'activity_ids.activity_type_id', 'activity_ids.active')
@@ -101,7 +101,7 @@ class CrmLead(models.Model):
         for lead in self:
             lead.meta_export_open_activities = '\n'.join(grouped.get(lead.id, []))
 
-    @api.depends_context('uid')
+    @api.depends_context('uid', 'company', 'allowed_company_ids', 'lang')
     @api.depends('message_ids.body', 'message_ids.mail_activity_type_id')
     def _compute_meta_export_done_activities(self):
         messages = self._meta_export_messages_by_lead([

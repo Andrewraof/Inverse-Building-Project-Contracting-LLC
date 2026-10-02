@@ -20,7 +20,7 @@
   The new Notes column combines both, using caller-visible messages only.
 - Completed activity messages retain the rendered summary and feedback.
   Open activities explicitly require active=True, even with active_test=False.
-- No sudo in new compute code; computations keyed by caller uid, parent access
+- No sudo in new compute code; computations keyed by caller uid and company scope, parent access
   checked, batched message/activity queries, no changes to CRM ACLs or assignment.
 - Ruling: the shared export template omits Meta page/form relation subfields,
   because ordinary CRM sales users may lack Meta model ACLs. Actual Source,
@@ -44,7 +44,18 @@
   Failures prove the missing action/template/export fields. The fixture error
   attempted to create another salesperson's lead as an own-leads-only seller.
   Fixed fixture: create own record then reassign as administrator; retain creator.
-- Green CI: pending. Production deployment: not performed.
+- CI `37000820343`: 1 failure / 6 errors. Fixed the unsupported active_test
+  context dependency on a Text field. Fixtures now grant the ordinary export
+  permission and use Markup for real HTML chatter (plain strings are escaped).
+- CI `37001153992`: 230/230 passed, but the new cache test was inconclusive:
+  Odoo's assertRaises(AccessError) cleared the cache before evaluating it.
+- Cache reproduction CI `37001434171` on `4ce3d31`: all three subtests failed
+  with AccessError not raised, proving the cross-company cache reuse finding.
+  Fix: company + allowed_company_ids + lang context keys on all three fields.
+  The regression uses stdlib assertRaises to preserve the existing cache.
+- Independent review: company cache isolation was the sole important finding;
+  fixed after the reproducing test. No CRM ACL/rule changes.
+- Final CI + double prior-release upgrade: pending. Production deployment: not performed.
 
 ## Limits / delivery
 

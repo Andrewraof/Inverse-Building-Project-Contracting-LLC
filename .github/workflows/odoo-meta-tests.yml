@@ -29,6 +29,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install and test connector on a temporary Odoo 19 database
         run: |
           docker run --rm --network host \
@@ -43,3 +45,39 @@ jobs:
             --db_host=127.0.0.1 \
             --db_user=odoo \
             --log-level=test
+
+      - name: Prepare prior-release reporting fixture on a disposable database
+        run: |
+          mkdir -p "$RUNNER_TEMP/crm-report-baseline"
+          # The production baseline from which this repair was developed.
+          git archive 47574a57e06c328ac4c69d98993698f25403d8e6 crm_meta_lead_ads \
+            | tar -x -C "$RUNNER_TEMP/crm-report-baseline"
+          docker run --rm --network host \
+            -v "$RUNNER_TEMP/crm-report-baseline/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
+            -e HOST=127.0.0.1 -e USER=odoo odoo:19.0 \
+            --database=meta_connector_reporting_upgrade --init=crm_meta_lead_ads \
+            --stop-after-init --without-demo=all --db_host=127.0.0.1 --db_user=odoo --log-level=warn
+          docker run -i --rm --network host \
+            -v "$RUNNER_TEMP/crm-report-baseline/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
+            -e HOST=127.0.0.1 -e USER=odoo -e REPORTING_UPGRADE_MODE=prepare \
+            odoo:19.0 odoo shell -d meta_connector_reporting_upgrade \
+            --db_host=127.0.0.1 --db_user=odoo --no-http --log-level=warn \
+            < deploy/check_crm_reporting_upgrade.py | tee "$RUNNER_TEMP/reporting-fixture.log"
+          grep -q REPORTING_FIXTURE_OK "$RUNNER_TEMP/reporting-fixture.log"
+
+      - name: Upgrade twice and verify preserved reporting data
+        run: |
+          for pass in 1 2; do
+            docker run --rm --network host \
+              -v "$PWD/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
+              -e HOST=127.0.0.1 -e USER=odoo odoo:19.0 \
+              --database=meta_connector_reporting_upgrade --update=crm_meta_lead_ads \
+              --stop-after-init --without-demo=all --db_host=127.0.0.1 --db_user=odoo --log-level=warn
+            docker run -i --rm --network host \
+              -v "$PWD/crm_meta_lead_ads:/mnt/extra-addons/crm_meta_lead_ads:ro" \
+              -e HOST=127.0.0.1 -e USER=odoo -e REPORTING_UPGRADE_MODE=verify \
+              odoo:19.0 odoo shell -d meta_connector_reporting_upgrade \
+              --db_host=127.0.0.1 --db_user=odoo --no-http --log-level=warn \
+              < deploy/check_crm_reporting_upgrade.py | tee "$RUNNER_TEMP/reporting-upgrade-$pass.log"
+            grep -q REPORTING_UPGRADE_OK "$RUNNER_TEMP/reporting-upgrade-$pass.log"
+          done
