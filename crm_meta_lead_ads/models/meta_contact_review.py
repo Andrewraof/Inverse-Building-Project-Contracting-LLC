@@ -159,8 +159,11 @@ class MetaReviewPartner(models.Model):
             'meta_adset_name': payload.get('adset_name'),
             'meta_campaign_id': payload.get('campaign_id'),
             'meta_campaign_name': payload.get('campaign_name'),
-            'meta_is_organic': bool(payload.get('is_organic')), 'meta_raw_payload': payload,
+            'meta_is_organic': bool(payload.get('is_organic')),
         })
+        # The raw audit field is system-only. Set only this internal field after
+        # CRM creation has succeeded with the reviewer's real permissions.
+        lead.sudo().write({'meta_raw_payload': payload})
         queue._ensure_identity(lead, 'created')
         queue.sudo().write({'crm_lead_id': lead.id})
         # The authorized transition occurs after successful lead creation, in
