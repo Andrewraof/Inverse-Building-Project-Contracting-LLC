@@ -1,0 +1,23 @@
+<odoo>
+    <record id="group_meta_contact_reviewer" model="res.groups">
+        <field name="name">Meta Contacts: Management Review</field>
+        <field name="implied_ids" eval="[(4, ref('crm_meta_lead_ads.group_meta_lead_user'))]"/>
+    </record>
+    <!-- Global rules INTERSECT the standard access rules. A sales group cannot
+         bypass the pending-contact restriction via another permissive group. -->
+    <record id="rule_meta_pending_contacts" model="ir.rule">
+        <field name="name">Meta pending contacts: management only</field>
+        <field name="model_id" ref="base.model_res_partner"/>
+        <field name="domain_force">['|', ('meta_review_state', 'not in', ['pending', 'rejected']), ('company_id', 'in', company_ids)] if (user.has_group('crm_meta_lead_ads.group_meta_contact_reviewer') or user.has_group('base.group_system')) else [('meta_review_state', 'not in', ['pending', 'rejected'])]</field>
+    </record>
+    <record id="rule_meta_review_queue" model="ir.rule">
+        <field name="name">Meta intake payload: management only</field>
+        <field name="model_id" ref="model_meta_lead_queue"/>
+        <field name="domain_force">[(1, '=', 1)] if (user.has_group('crm_meta_lead_ads.group_meta_contact_reviewer') or user.has_group('base.group_system')) else [('contact_review_required', '=', False)]</field>
+    </record>
+    <record id="rule_meta_review_log" model="ir.rule">
+        <field name="name">Meta intake audit: management only</field>
+        <field name="model_id" ref="model_meta_lead_log"/>
+        <field name="domain_force">[(1, '=', 1)] if (user.has_group('crm_meta_lead_ads.group_meta_contact_reviewer') or user.has_group('base.group_system')) else ['|', ('queue_id', '=', False), ('queue_id.contact_review_required', '=', False)]</field>
+    </record>
+</odoo>

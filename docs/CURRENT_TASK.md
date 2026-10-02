@@ -1,5 +1,15 @@
 # CURRENT_TASK — Batch 2: Complete Meta CRM Operations Suite
 
+## Current task override — 2026-10-02
+
+New Meta Lead Ads enquiries must enter Contacts for management review before
+sales assignment; no conversion of existing records. Version 19.0.4.3.0.
+Implemented in isolated branch meta-contacts-first-20261002 from main f8fbeae,
+excluding unmerged health work. CI 37011472613 passed 239/239 Odoo tests and
+two upgrades; 14/14 local repository checks and validator passed. Deployment
+authorized by user, pending normal merge/Actions at this documentation point.
+Details and operating instructions: CONTACTS_FIRST.md. Historical notes below.
+
 الحالة: Batch 2 مع تحسينات ربط المحادثة بالـCRM على فرع مراجعة مستقل؛
 اجتازت اختبارات Odoo 19 على قاعدة مؤقتة في GitHub Actions، ولم تُنشر بعد
 على الإنتاج. لا توجد بيئة Odoo محلية، ولم تُشغَّل الاختبارات على قاعدة

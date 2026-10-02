@@ -1,5 +1,6 @@
 """Odoo shell fixture/assertions, ONLY for the named disposable CI database."""
 import os
+from unittest.mock import patch
 
 from markupsafe import Markup
 from odoo.tools.safe_eval import safe_eval
@@ -47,6 +48,30 @@ def run(env, mode):
     assert 'Pending upgrade fixture' in row[paths.index('meta_export_open_activities')]
     assert 'Completed upgrade fixture' not in row[paths.index('meta_export_open_activities')]
     assert 'Preserved completed feedback' in row[paths.index('meta_export_done_activities')]
+    params = env['ir.config_parameter'].sudo()
+    cutoff = params.get_param('crm_meta_lead_ads.contact_review_from')
+    assert cutoff, 'Contact review cutover was not enabled by upgrade'
+    previous = params.get_param('meta_contact_upgrade_fixture_cutover')
+    assert not previous or previous == cutoff, 'Second upgrade moved the cutover'
+    params.set_param('meta_contact_upgrade_fixture_cutover', cutoff)
+    account = env['meta.account'].search([('name', '=', 'Contact upgrade fixture')], limit=1)
+    if not account:
+        account = env['meta.account'].create({'name': 'Contact upgrade fixture', 'app_id': 'fake', 'app_secret': 'fake'})
+        page = env['meta.page'].create({'name': 'Fixture page', 'account_id': account.id,
+                                       'meta_page_id': 'upgrade-page', 'page_access_token': 'fake-token'})
+    else:
+        page = account.page_ids[:1]
+    queue = env['meta.lead.queue'].enqueue_event(env.company, page, 'contact-upgrade-enquiry')
+    with patch.object(type(queue), '_fetch_lead', return_value={
+            'id': 'contact-upgrade-enquiry', 'field_data': [
+                {'name': 'full_name', 'values': ['Upgrade Contact Fixture']}]}):
+        queue.process_one()
+    assert queue.state == 'done', queue.error_message
+    assert queue.review_partner_id.meta_review_state == 'pending'
+    assert not queue.crm_lead_id, 'New enquiry incorrectly entered the pipeline'
+    assert not lead.partner_id.meta_review_state, 'Existing record was converted'
+    env.cr.commit()  # Disposable fixture: also verifies idempotency on upgrade 2.
+    print('CONTACT_REVIEW_UPGRADE_OK')
     print('REPORTING_UPGRADE_OK')
 
 
