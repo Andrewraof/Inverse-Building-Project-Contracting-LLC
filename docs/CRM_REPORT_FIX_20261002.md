@@ -55,7 +55,10 @@
   The regression uses stdlib assertRaises to preserve the existing cache.
 - Independent review: company cache isolation was the sole important finding;
   fixed after the reproducing test. No CRM ACL/rule changes.
-- Final CI + double prior-release upgrade: pending. Production deployment: not performed.
+- Final CI `37001690410` on `50fcd15`: 230 tests, 0 failures, 0 errors.
+  Prior-release fixture prepared successfully, then upgraded twice; both passes
+  confirmed preserved lead/opportunity, source, notes and activity exports.
+  Production deployment: not performed.
 
 ## Limits / delivery
 
