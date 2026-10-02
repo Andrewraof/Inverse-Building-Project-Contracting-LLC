@@ -72,8 +72,10 @@ class TestMetaCrmVisibilityExport(TransactionCase):
     def test_template_exports_assignee_not_creator(self):
         lead = self.Lead.with_user(self.seller).create({
             'name': 'Different creator and assignee', 'type': 'lead',
-            'company_id': self.env.company.id, 'user_id': self.other_seller.id,
+            'company_id': self.env.company.id, 'user_id': self.seller.id,
         })
+        lead = lead.with_user(self.env.user)
+        lead.write({'user_id': self.other_seller.id})
         paths = self._template_paths()
         row = lead.with_user(self.env.user).export_data(paths)['datas'][0]
         self.assertIn('user_id/name', paths)
@@ -161,7 +163,12 @@ class TestMetaCrmVisibilityExport(TransactionCase):
         lead = self._lead(description='<p>Caller-visible description</p>')
         lead.message_post(body='Privileged internal note', subtype_xmlid='mail.mt_note',
                           message_type='comment')
+        self.env['ir.rule'].create({
+            'name': 'Reporting fixture: restrict messages to own author',
+            'model_id': self.env['ir.model']._get_id('mail.message'),
+            'domain_force': "[('author_id', '=', user.partner_id.id)]",
+        })
         self.assertIn('Privileged internal note', lead.meta_export_notes)
         # A second caller must recompute under their own mail.message access.
         self.assertIn('Caller-visible description', lead.with_user(self.seller).meta_export_notes)
-
+        self.assertNotIn('Privileged internal note', lead.with_user(self.seller).meta_export_notes)
