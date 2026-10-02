@@ -1,0 +1,29 @@
+<odoo noupdate="1">
+    <!-- Use assigned salesperson and actual UTM source, not creator/page.
+         Avoid Meta relation subfields: ordinary CRM users may lack Meta ACLs. -->
+    <record id="export_meta_leads" model="ir.exports">
+        <field name="name">CRM Leads &amp; Opportunities — Salesperson, Source, Notes &amp; Activities</field>
+        <field name="resource">crm.lead</field>
+        <field name="export_fields" eval="[
+            (0, 0, {'name': 'name'}),
+            (0, 0, {'name': 'contact_name'}),
+            (0, 0, {'name': 'email_from'}),
+            (0, 0, {'name': 'phone'}),
+            (0, 0, {'name': 'type'}),
+            (0, 0, {'name': 'stage_id/name'}),
+            (0, 0, {'name': 'user_id/name'}),
+            (0, 0, {'name': 'team_id/name'}),
+            (0, 0, {'name': 'source_id/name'}),
+            (0, 0, {'name': 'medium_id/name'}),
+            (0, 0, {'name': 'campaign_id/name'}),
+            (0, 0, {'name': 'meta_platform'}),
+            (0, 0, {'name': 'meta_campaign_name'}),
+            (0, 0, {'name': 'meta_adset_name'}),
+            (0, 0, {'name': 'meta_ad_name'}),
+            (0, 0, {'name': 'create_date'}),
+            (0, 0, {'name': 'meta_export_notes'}),
+            (0, 0, {'name': 'meta_export_open_activities'}),
+            (0, 0, {'name': 'meta_export_done_activities'})
+        ]"/>
+    </record>
+</odoo>

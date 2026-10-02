@@ -1,5 +1,6 @@
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
+from odoo.tools import html2plaintext
 
 from .meta_dedup import normalize_email, normalize_phone
 
@@ -37,6 +38,82 @@ class CrmLead(models.Model):
         groups='crm_meta_lead_ads.group_meta_lead_user')
     meta_routing_rule_id = fields.Many2one('meta.routing.rule', copy=False, readonly=True,
                                            help='Routing rule that assigned this lead, if any.')
+    meta_export_notes = fields.Text(
+        string='Notes (export)', compute='_compute_meta_export_notes',
+        compute_sudo=False, readonly=True, copy=False,
+        help='Readable Notes tab plus internal chatter notes visible to the exporting user.')
+    meta_export_open_activities = fields.Text(
+        string='Open Activities (export)', compute='_compute_meta_export_open_activities',
+        compute_sudo=False, readonly=True, copy=False)
+    meta_export_done_activities = fields.Text(
+        string='Completed Activities (export)', compute='_compute_meta_export_done_activities',
+        compute_sudo=False, readonly=True, copy=False,
+        help='Completed activity messages, including recorded feedback. No inferred history.')
+
+    def _meta_export_messages_by_lead(self, domain):
+        """Batch under caller permissions, never reuse privileged computed values."""
+        self.check_access('read')
+        ids = [record_id for record_id in self.ids if isinstance(record_id, int)]
+        grouped = {record_id: [] for record_id in ids}
+        if ids:
+            messages = self.env['mail.message'].search([
+                ('model', '=', 'crm.lead'), ('res_id', 'in', ids),
+            ] + domain, order='date, id')
+            for message in messages:
+                grouped[message.res_id].append(message)
+        return grouped
+
+    @api.depends_context('uid', 'company', 'allowed_company_ids', 'lang')
+    @api.depends('description', 'message_ids.body', 'message_ids.subtype_id')
+    def _compute_meta_export_notes(self):
+        messages = self._meta_export_messages_by_lead([
+            ('message_type', '=', 'comment'),
+            ('subtype_id', '=', self.env.ref('mail.mt_note').id),
+        ])
+        for lead in self:
+            parts = [html2plaintext(lead.description or '').strip()]
+            for message in messages.get(lead.id, []):
+                body = html2plaintext(message.body or '').strip()
+                if body:
+                    parts.append('%s | %s | %s' % (
+                        fields.Datetime.to_string(message.date) or '',
+                        message.author_id.name or '', body))
+            lead.meta_export_notes = '\n'.join(part for part in parts if part)
+
+    @api.depends_context('uid', 'company', 'allowed_company_ids', 'lang')
+    @api.depends('activity_ids.summary', 'activity_ids.note',
+                 'activity_ids.date_deadline', 'activity_ids.user_id',
+                 'activity_ids.activity_type_id', 'activity_ids.active')
+    def _compute_meta_export_open_activities(self):
+        self.check_access('read')
+        ids = [record_id for record_id in self.ids if isinstance(record_id, int)]
+        grouped = {record_id: [] for record_id in ids}
+        if ids:
+            activities = self.env['mail.activity'].search([
+                ('res_model', '=', 'crm.lead'), ('res_id', 'in', ids),
+                ('active', '=', True),
+            ], order='date_deadline, id')
+            for activity in activities:
+                parts = [activity.activity_type_id.name, activity.summary,
+                         'due %s' % activity.date_deadline if activity.date_deadline else '',
+                         activity.user_id.name, html2plaintext(activity.note or '').strip()]
+                grouped[activity.res_id].append(' | '.join(part for part in parts if part))
+        for lead in self:
+            lead.meta_export_open_activities = '\n'.join(grouped.get(lead.id, []))
+
+    @api.depends_context('uid', 'company', 'allowed_company_ids', 'lang')
+    @api.depends('message_ids.body', 'message_ids.mail_activity_type_id')
+    def _compute_meta_export_done_activities(self):
+        messages = self._meta_export_messages_by_lead([
+            ('mail_activity_type_id', '!=', False),
+        ])
+        for lead in self:
+            lead.meta_export_done_activities = '\n'.join(
+                '%s | %s | %s' % (
+                    fields.Datetime.to_string(message.date) or '',
+                    message.mail_activity_type_id.name or '',
+                    html2plaintext(message.body or '').strip())
+                for message in messages.get(lead.id, []))
 
     @api.depends('meta_identity_ids')
     def _compute_meta_identity_count(self):

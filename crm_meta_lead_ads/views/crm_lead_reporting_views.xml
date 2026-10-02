@@ -1,0 +1,60 @@
+<odoo>
+    <record id="view_meta_crm_records_list" model="ir.ui.view">
+        <field name="name">crm.lead.meta.records.list</field>
+        <field name="model">crm.lead</field>
+        <field name="arch" type="xml">
+            <list string="Meta Leads &amp; Opportunities" default_order="create_date desc">
+                <field name="name"/>
+                <field name="type"/>
+                <field name="contact_name" optional="show"/>
+                <field name="email_from" optional="show"/>
+                <field name="phone" optional="show"/>
+                <field name="user_id" string="Salesperson" optional="show"/>
+                <field name="team_id" optional="show"/>
+                <field name="source_id" string="Source" optional="show"/>
+                <field name="stage_id" optional="show"/>
+                <field name="create_date" optional="hide"/>
+                <field name="meta_export_notes" optional="hide"/>
+                <field name="meta_export_open_activities" optional="hide"/>
+                <field name="meta_export_done_activities" optional="hide"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_meta_crm_records_search" model="ir.ui.view">
+        <field name="name">crm.lead.meta.records.search</field>
+        <field name="model">crm.lead</field>
+        <field name="arch" type="xml">
+            <search string="Meta Leads &amp; Opportunities">
+                <field name="name"/>
+                <field name="contact_name"/>
+                <field name="user_id"/>
+                <field name="team_id"/>
+                <field name="source_id"/>
+                <separator/>
+                <filter name="leads" string="Leads" domain="[('type', '=', 'lead')]"/>
+                <filter name="opportunities" string="Opportunities" domain="[('type', '=', 'opportunity')]"/>
+                <separator/>
+                <filter name="mine" string="Assigned to Me" domain="[('user_id', '=', uid)]"/>
+                <separator/>
+                <filter name="archived" string="Archived / Lost" domain="[('active', '=', False)]"/>
+                <group>
+                    <filter name="group_salesperson" string="Salesperson" context="{'group_by': 'user_id'}"/>
+                    <filter name="group_source" string="Source" context="{'group_by': 'source_id'}"/>
+                    <filter name="group_type" string="Lead / Opportunity" context="{'group_by': 'type'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+    <record id="action_meta_crm_records" model="ir.actions.act_window">
+        <field name="name">Meta Leads &amp; Opportunities</field>
+        <field name="res_model">crm.lead</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" ref="view_meta_crm_records_list"/>
+        <field name="search_view_id" ref="view_meta_crm_records_search"/>
+        <field name="domain">['|', '|', ('meta_page_id', '!=', False), ('meta_lead_id', '!=', False), ('meta_conversation_id', '!=', False)]</field>
+        <field name="context">{}</field>
+    </record>
+    <menuitem id="menu_meta_crm_records" name="Meta Leads &amp; Opportunities"
+              parent="crm.crm_menu_sales" action="action_meta_crm_records"
+              sequence="15" groups="sales_team.group_sale_salesman"/>
+</odoo>
