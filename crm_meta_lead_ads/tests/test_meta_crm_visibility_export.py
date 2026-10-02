@@ -189,5 +189,8 @@ class TestMetaCrmVisibilityExport(TransactionCase):
         # Do NOT invalidate caches: that would hide the cross-context reuse bug.
         for field_name in fields_to_check:
             with self.subTest(field=field_name):
-                with self.assertRaises(AccessError):
+                # Odoo's assertRaises(AccessError) clears the cache on entry;
+                # stdlib's context manager leaves the cross-context cache intact.
+                with unittest.TestCase.assertRaises(self, AccessError):
                     narrow[field_name]
+import unittest
