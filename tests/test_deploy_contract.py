@@ -15,7 +15,18 @@ class DeployContractTests(unittest.TestCase):
         self.assertIn('readonly AUTO_INSTALL_MODULES=("crm_meta_lead_ads")', script)
         self.assertIn('for module_name in "${MODULE_NAMES[@]}"; do', script)
         self.assertIn('operation_mode="install"', script)
-        self.assertIn('-i "$module_name"', script)
+        self.assertIn('odoo_args+=(-i "$install_csv")', script)
+
+    def test_shared_model_extensions_are_updated_together(self):
+        script = (ROOT / "deploy" / "deploy-inverse-odoo").read_text(encoding="utf-8")
+        self.assertIn('odoo_args+=(-u "$update_csv")', script)
+        self.assertIn('"${odoo_args[@]}" --stop-after-init --no-http', script)
+        self.assertLess(script.index('systemctl stop "$ODOO_SERVICE"'),
+                        script.index('rsync -a --delete'))
+        workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+        self.assertIn('bootstrap_status=${PIPESTATUS[0]}', workflow)
+        self.assertIn('grep -q "Refreshed /usr/local/sbin/deploy-inverse-odoo"', workflow)
+        self.assertNotIn('continue-on-error: true', workflow)
 
         workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
         self.assertIn("deploy/validate_addon.py crm_meta_lead_ads", workflow)

@@ -92,6 +92,9 @@ for database in "${PRODUCTION_DATABASES[@]}"; do
   fi
 done
 
+systemctl stop "$ODOO_SERVICE"
+service_stopped=1
+files_changed=1
 for module_name in "${MODULE_NAMES[@]}"; do
   target_module="${TARGET_ROOT}/${module_name}"
   mkdir -p "$target_module"
@@ -99,22 +102,29 @@ for module_name in "${MODULE_NAMES[@]}"; do
     "${release_dir}/${module_name}/" "$target_module/"
   chown -R odoo:odoo "$target_module"
 done
-files_changed=1
-
-systemctl stop "$ODOO_SERVICE"
-service_stopped=1
-for operation in "${module_operations[@]}"; do
-  database="${operation%%:*}"
-  remainder="${operation#*:}"
-  operation_mode="${remainder%%:*}"
-  module_name="${remainder#*:}"
-  if [[ "$operation_mode" == "install" ]]; then
-    timeout 20m runuser -u odoo -- /usr/bin/python3 "$ODOO_BIN" \
-      -c "$ODOO_CONFIG" -d "$database" -i "$module_name" --without-demo=all --stop-after-init --no-http
-  else
-    timeout 20m runuser -u odoo -- /usr/bin/python3 "$ODOO_BIN" \
-      -c "$ODOO_CONFIG" -d "$database" -u "$module_name" --stop-after-init --no-http
-  fi
+for database in "${PRODUCTION_DATABASES[@]}"; do
+  update_csv=""
+  install_csv=""
+  for operation in "${module_operations[@]}"; do
+    [[ "${operation%%:*}" == "$database" ]] || continue
+    remainder="${operation#*:}"
+    operation_mode="${remainder%%:*}"
+    module_name="${remainder#*:}"
+    if [[ "$operation_mode" == "install" ]]; then
+      install_csv+="${install_csv:+,}${module_name}"
+    else
+      update_csv+="${update_csv:+,}${module_name}"
+    fi
+  done
+  odoo_args=()
+  if [[ -n "$update_csv" ]]; then odoo_args+=(-u "$update_csv"); fi
+  if [[ -n "$install_csv" ]]; then odoo_args+=(-i "$install_csv"); fi
+  if [[ "${#odoo_args[@]}" -eq 0 ]]; then continue; fi
+  # Update all changed addons in one registry load. Separate -u invocations
+  # expose new shared-model fields before their schema has been initialized.
+  timeout 20m runuser -u odoo -- /usr/bin/python3 "$ODOO_BIN" \
+    -c "$ODOO_CONFIG" -d "$database" --without-demo=all \
+    "${odoo_args[@]}" --stop-after-init --no-http
 done
 systemctl start "$ODOO_SERVICE"
 service_stopped=0

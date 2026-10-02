@@ -43,10 +43,22 @@ jobs:
 
       - name: Bootstrap deployer and deploy exact commit
         run: |
+          set +e
           ssh -i ~/.ssh/inverse_deploy \
             -o IdentitiesOnly=yes \
             deploy@178.104.53.152 \
-            "sudo /usr/local/sbin/deploy-inverse-odoo '${GITHUB_SHA}'"
+            "sudo /usr/local/sbin/deploy-inverse-odoo '${GITHUB_SHA}'" 2>&1 | tee "$RUNNER_TEMP/deployer-bootstrap.log"
+          bootstrap_status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$bootstrap_status" -ne 0 ]]; then
+            # Only retry a self-refreshing OLD deployer after its safe rollback.
+            # The next step uses the new deployer and MUST succeed.
+            grep -q "Refreshed /usr/local/sbin/deploy-inverse-odoo" "$RUNNER_TEMP/deployer-bootstrap.log"
+            grep -q "starting rollback" "$RUNNER_TEMP/deployer-bootstrap.log"
+            grep -q "Database backups, when created, are retained" "$RUNNER_TEMP/deployer-bootstrap.log"
+            ssh -i ~/.ssh/inverse_deploy -o IdentitiesOnly=yes \
+              deploy@178.104.53.152 "systemctl is-active --quiet odoo19.service"
+          fi
 
       - name: Deploy exact commit with refreshed deployer
         run: |
