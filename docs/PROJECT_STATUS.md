@@ -1,5 +1,12 @@
 # PROJECT_STATUS — حالة مشروع crm_meta_lead_ads
 
+## 2026-10-02: Contacts-first intake (19.0.4.3.0)
+
+New Lead Ads enquiries: unassigned private Contact, management approval then
+CRM Lead and explicit salesperson. Existing data and Messenger unchanged.
+CI 37011472613: 239/239 tests and repeated upgrade passed; pending deployment
+at this update. See CONTACTS_FIRST.md for scope, cutover and rollback caveat.
+
 آخر تحديث: 2026-09-24
 
 ## نظرة عامة

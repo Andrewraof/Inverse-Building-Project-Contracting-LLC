@@ -31,7 +31,12 @@ The upgrade assigns the review group to already-designated lead creators from
 inverse_crm_lead_control when installed, otherwise the known active Hafez/Michael
 logins. System administrators may also review. No other sales groups are upgraded.
 
-Verification: dedicated Odoo tests cover intake, restricted reads/approvals,
+Verification: CI run 37011472613 on 37953e0 passed 239/239 Odoo tests and
+both upgrade passes (CONTACT_REVIEW_UPGRADE_OK); local repo tests 14/14
+and addon validator passed. The first run exposed system-only raw audit field
+permissions; corrected by non-sudo CRM creation followed by a narrow audit-only
+write. Independent read-only review found no remaining blocker.
+Dedicated Odoo tests cover intake, restricted reads/approvals,
 company isolation, replay, failed approval, rejection, original records and
 historical dates. Disposable upgrade fixture runs twice and verifies the stable
 cutover and contact-only processing. Actual results are recorded after CI.
