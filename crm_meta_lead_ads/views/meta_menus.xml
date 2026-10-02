@@ -12,6 +12,7 @@
     <menuitem id="menu_meta_report_leads" name="Leads" parent="menu_meta_reports" action="action_meta_leads_report" sequence="10"/>
     <menuitem id="menu_meta_report_queue" name="Ingestion Queue" parent="menu_meta_reports" action="action_meta_queue_report" sequence="20"/>
     <menuitem id="menu_meta_report_conversations" name="Conversations" parent="menu_meta_reports" action="action_meta_conversation_report" sequence="30"/>
+    <menuitem id="menu_meta_report_first_response" name="First Response Time" parent="menu_meta_reports" action="action_meta_first_response_report" sequence="35"/>
     <menuitem id="menu_meta_report_funnel" name="Funnel" parent="menu_meta_reports" action="action_meta_funnel_report" sequence="40"/>
     <menuitem id="menu_meta_report_ad_insight" name="Ad Performance (CPL)" parent="menu_meta_reports" action="action_meta_ad_insight" sequence="50"/>
     <menuitem id="menu_meta_logs" name="Audit Logs" parent="menu_meta_root" action="action_meta_lead_log" sequence="40"/>
