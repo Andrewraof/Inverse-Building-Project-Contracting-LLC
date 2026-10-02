@@ -2,6 +2,7 @@ from odoo import Command, fields
 from odoo.exceptions import AccessError
 from odoo.tests.common import TransactionCase
 from odoo.tools.safe_eval import safe_eval
+from markupsafe import Markup
 
 
 class TestMetaCrmVisibilityExport(TransactionCase):
@@ -11,6 +12,7 @@ class TestMetaCrmVisibilityExport(TransactionCase):
     def setUpClass(cls):
         super().setUpClass()
         groups = [cls.env.ref('base.group_user').id,
+                  cls.env.ref('base.group_allow_export').id,
                   cls.env.ref('sales_team.group_sale_salesman').id]
         cls.seller = cls.env['res.users'].create({
             'name': 'Reporting Seller', 'login': 'reporting-seller@example.invalid',
@@ -99,9 +101,9 @@ class TestMetaCrmVisibilityExport(TransactionCase):
     def test_notes_include_description_and_internal_notes_not_discussion(self):
         self.assertIn('meta_export_notes', self.Lead._fields)
         lead = self._lead(description='<p>Customer requirements</p>')
-        lead.message_post(body='<p>First internal note</p>',
+        lead.message_post(body=Markup('<p>First internal note</p>'),
                           subtype_xmlid='mail.mt_note', message_type='comment')
-        lead.message_post(body='<p>Second internal note</p>',
+        lead.message_post(body=Markup('<p>Second internal note</p>'),
                           subtype_xmlid='mail.mt_note', message_type='comment')
         lead.message_post(body='External discussion',
                           subtype_xmlid='mail.mt_comment', message_type='comment')
@@ -172,3 +174,20 @@ class TestMetaCrmVisibilityExport(TransactionCase):
         # A second caller must recompute under their own mail.message access.
         self.assertIn('Caller-visible description', lead.with_user(self.seller).meta_export_notes)
         self.assertNotIn('Privileged internal note', lead.with_user(self.seller).meta_export_notes)
+
+    def test_cached_export_values_respect_narrowed_company_context(self):
+        company = self.env['res.company'].create({'name': 'Reporting Cache Company'})
+        self.seller.write({'company_ids': [Command.link(company.id)]})
+        lead = self._lead(company_id=company.id, description='<p>Company B note</p>')
+        fields_to_check = ['meta_export_notes', 'meta_export_open_activities',
+                           'meta_export_done_activities']
+        broad = lead.with_user(self.seller).with_context(
+            allowed_company_ids=[self.env.company.id, company.id])
+        for field_name in fields_to_check:
+            broad[field_name]
+        narrow = broad.with_context(allowed_company_ids=[self.env.company.id])
+        # Do NOT invalidate caches: that would hide the cross-context reuse bug.
+        for field_name in fields_to_check:
+            with self.subTest(field=field_name):
+                with self.assertRaises(AccessError):
+                    narrow[field_name]

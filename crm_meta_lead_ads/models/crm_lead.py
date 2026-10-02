@@ -80,7 +80,7 @@ class CrmLead(models.Model):
                         message.author_id.name or '', body))
             lead.meta_export_notes = '\n'.join(part for part in parts if part)
 
-    @api.depends_context('uid', 'active_test')
+    @api.depends_context('uid')
     @api.depends('activity_ids.summary', 'activity_ids.note',
                  'activity_ids.date_deadline', 'activity_ids.user_id',
                  'activity_ids.activity_type_id', 'activity_ids.active')
