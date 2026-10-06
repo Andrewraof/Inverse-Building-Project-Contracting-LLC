@@ -585,7 +585,10 @@ class MetaSyncRun(models.Model):
     # ------------------------------------------------------------------
     def _finalize(self):
         self.ensure_one()
-        state = 'completed_warnings' if (self.warning_count or self.missing_permissions) else 'completed'
+        has_issues = (self.warning_count or self.missing_permissions
+                      or self.leads_failed or self.leads_ambiguous
+                      or self.messages_failed)
+        state = 'completed_warnings' if has_issues else 'completed'
         self.write({'state': state, 'ended_at': fields.Datetime.now(),
                     'current_step': False})
         _logger.info(
