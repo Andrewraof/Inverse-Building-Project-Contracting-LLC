@@ -112,6 +112,60 @@ class TestMetaContactReview(TransactionCase):
         self.assertEqual(p.meta_review_state, 'pending')
         self.assertFalse(p.meta_review_lead_id)
 
+    def test_approval_without_salesperson_stays_unassigned(self):
+        q = self._intake()
+        p = q.review_partner_id.with_user(self.reviewer).with_context(
+            default_user_id=self.reviewer.id)
+        p.write({'name': 'Reviewed without assignment'})
+        self.assertEqual(p.meta_review_state, 'pending')
+        p.action_meta_approve()
+        lead = p.meta_review_lead_id
+        self.assertTrue(lead)
+        self.assertEqual(p.meta_review_state, 'approved')
+        self.assertEqual(lead.type, 'lead')
+        self.assertFalse(lead.user_id)
+        self.assertFalse(p.user_id)
+        self.assertFalse(lead.meta_routing_rule_id)
+        self.assertEqual(q.crm_lead_id, lead)
+        p.action_meta_approve()
+        self.assertEqual(self.env['crm.lead'].search_count([
+            ('meta_lead_id', '=', q.meta_lead_id)]), 1)
+        lead.write({'user_id': self.sales.id})
+        self.assertEqual(lead.user_id, self.sales)
+
+    def test_optional_salesperson_still_validates_selected_user(self):
+        p = self._intake().review_partner_id.with_user(self.reviewer)
+        inactive = self._user('intake-inactive', ['sales_team.group_sale_salesman'])
+        inactive.active = False
+        portal = self.env['res.users'].with_context(no_reset_password=True).create({
+            'name': 'Intake portal', 'login': 'intake-portal',
+            'group_ids': [Command.set([self.env.ref('base.group_portal').id])],
+        })
+        other = self.env['res.company'].create({'name': 'Sales other company'})
+        outsider = self._user('intake-other-sales', ['sales_team.group_sale_salesman'])
+        outsider.write({'company_ids': [Command.set(other.ids)], 'company_id': other.id})
+        for salesperson in (inactive, portal, outsider):
+            with self.subTest(salesperson=salesperson.login):
+                p.meta_review_user_id = salesperson
+                with self.assertRaises(UserError):
+                    p.action_meta_approve()
+                self.assertEqual(p.meta_review_state, 'pending')
+                self.assertFalse(p.meta_review_lead_id)
+
+    def test_unassigned_approval_keeps_lead_creation_permissions(self):
+        p = self._intake().review_partner_id.with_user(self.reviewer)
+
+        def denied(model, vals):
+            self.assertFalse(model.env.su)
+            raise AccessError('Lead creation restricted')
+
+        with patch.object(type(self.env['crm.lead']), 'create', denied):
+            with self.assertRaises(AccessError):
+                p.action_meta_approve()
+        self.assertEqual(p.meta_review_state, 'pending')
+        self.assertFalse(p.meta_review_lead_id)
+        self.assertFalse(p.user_id)
+
     def test_rejection_remains_private(self):
         p = self._intake().review_partner_id
         p.with_user(self.reviewer).action_meta_reject()
