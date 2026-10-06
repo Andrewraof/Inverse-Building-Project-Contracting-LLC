@@ -1,5 +1,15 @@
 # CURRENT_TASK — Batch 2: Complete Meta CRM Operations Suite
 
+## Current task override — 2026-10-06
+
+Version 19.0.4.3.1 decouples management approval from salesperson assignment.
+Contacts may be saved pending; approval with an empty salesperson creates an
+unassigned CRM lead. Selected-user validation and all review/privacy controls
+remain intact. Regression run 37436919684 reproduced the original UserError;
+fixed code 9bb9491 passed CI 37437253978 including two upgrades. Local repository
+tests: 15/15. Read-only independent review: no blockers. Deployment authorized
+by the user, pending merge/Actions at this update. See CONTACTS_FIRST.md.
+
 ## Current task override — 2026-10-02
 
 New Meta Lead Ads enquiries must enter Contacts for management review before

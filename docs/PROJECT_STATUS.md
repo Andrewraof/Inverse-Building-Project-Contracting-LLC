@@ -1,5 +1,13 @@
 # PROJECT_STATUS — حالة مشروع crm_meta_lead_ads
 
+## 2026-10-06: Optional salesperson at approval (19.0.4.3.1)
+
+Management can approve without assignment and assign later on the CRM lead.
+Saving pending contacts remains separate from approval. Existing permissions,
+privacy, deduplication and historical records are unchanged. CI 37437253978
+passed installation tests and repeated upgrade; local repository tests 15/15.
+Pending authorized merge/deployment at this documentation update.
+
 ## 2026-10-02: Contacts-first intake (19.0.4.3.0)
 
 New Lead Ads enquiries: unassigned private Contact, management approval then

@@ -90,8 +90,9 @@ class MetaReviewPartner(models.Model):
                                           copy=False, ondelete='restrict', index=True)
     meta_review_lead_id = fields.Many2one('crm.lead', readonly=True, copy=False,
                                          ondelete='set null')
-    meta_review_user_id = fields.Many2one('res.users', string='Salesperson after approval',
-                                         copy=False)
+    meta_review_user_id = fields.Many2one(
+        'res.users', string='Salesperson after approval (optional)', copy=False,
+        help='Leave empty to approve without assignment. Assign a salesperson on the CRM lead later.')
     meta_reviewed_by = fields.Many2one('res.users', readonly=True, copy=False)
     meta_reviewed_at = fields.Datetime(readonly=True, copy=False)
 
@@ -138,9 +139,9 @@ class MetaReviewPartner(models.Model):
         if self.meta_review_state != 'pending':
             raise UserError(_('Only pending enquiries can be approved.'))
         salesperson = self.meta_review_user_id
-        if not salesperson or not salesperson.active or salesperson.share:
-            raise UserError(_('Choose an active internal salesperson before approval.'))
-        if self.company_id not in salesperson.company_ids:
+        if salesperson and (not salesperson.active or salesperson.share):
+            raise UserError(_('The selected salesperson must be an active internal user.'))
+        if salesperson and self.company_id not in salesperson.company_ids:
             raise UserError(_('The salesperson must have access to this company.'))
         payload = queue.fetched_payload or {}
         mapped, form = queue._mapping_values(payload)
@@ -150,7 +151,8 @@ class MetaReviewPartner(models.Model):
             **mapped, 'name': mapped.get('name') or self.name,
             'contact_name': self.name, 'email_from': self.email, 'phone': self.phone,
             'partner_id': self.id, 'company_id': self.company_id.id, 'type': 'lead',
-            'user_id': salesperson.id, 'team_id': form.sales_team_id.id if form else False,
+            # Explicit False prevents the current user/context default from assigning the lead.
+            'user_id': salesperson.id or False, 'team_id': form.sales_team_id.id if form else False,
             'source_id': source.id if source else False, 'meta_lead_id': queue.meta_lead_id,
             'meta_page_id': queue.page_id.id, 'meta_form_id': form.id if form else False,
             'meta_platform': payload.get('platform') if payload.get('platform') in ('facebook', 'instagram') else 'unknown',
@@ -171,7 +173,7 @@ class MetaReviewPartner(models.Model):
         super(MetaReviewPartner, self.sudo()).write({
             'meta_review_state': 'approved', 'meta_review_lead_id': lead.id,
             'meta_reviewed_by': self.env.uid, 'meta_reviewed_at': fields.Datetime.now(),
-            'user_id': salesperson.id,
+            'user_id': salesperson.id or False,
         })
         return True
 
