@@ -12,7 +12,8 @@
                     <field name="meta_review_lead_id"/>
                     <field name="meta_reviewed_by"/>
                     <field name="meta_reviewed_at"/>
-                    <button name="action_meta_approve" type="object" string="Approve and Create Lead" class="btn-primary" invisible="meta_review_state != 'pending'" groups="crm_meta_lead_ads.group_meta_contact_reviewer,base.group_system" confirm="Approve this enquiry and release it to the selected salesperson?"/>
+                    <div colspan="2" invisible="meta_review_state != 'pending'">You can save this contact without approving or assigning it. Approval creates a CRM lead; leave the optional salesperson empty to assign it later.</div>
+                    <button name="action_meta_approve" type="object" string="Approve and Create Lead" class="btn-primary" invisible="meta_review_state != 'pending'" groups="crm_meta_lead_ads.group_meta_contact_reviewer,base.group_system" confirm="Approve this enquiry and create a CRM lead? If no salesperson is selected, it will remain unassigned."/>
                     <button name="action_meta_reject" type="object" string="Reject" invisible="meta_review_state != 'pending'" groups="crm_meta_lead_ads.group_meta_contact_reviewer,base.group_system"/>
                 </group>
             </xpath>

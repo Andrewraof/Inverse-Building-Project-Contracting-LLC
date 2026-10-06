@@ -19,8 +19,12 @@ rules. Each enquiry gets an isolated contact even when email matches an existing
 customer; management can resolve that relationship later without hiding the
 existing customer. Redeliveries of the same Meta ID reuse the same contact.
 
-Management opens Meta Lead Ads > Contacts — Management Review, chooses a
-salesperson, then Approve and Create Lead or Reject. Approval executes CRM create
+Management opens Meta Lead Ads > Contacts — Management Review. Saving contact
+details does not require approval or assignment. From 19.0.4.3.1, selecting a
+salesperson is optional: Approve and Create Lead with the field empty creates an
+unassigned CRM lead, not an opportunity. Management can assign it on the CRM
+lead later. A selected salesperson must still be active, internal and have
+access to the contact's company. Reject remains available. Approval executes CRM create
 with the reviewer's real rights (including the separate lead-creator restriction).
 It retains answers, source and ad attribution, and releases the contact only
 after successful lead creation in the same transaction. Repeated approval is a
