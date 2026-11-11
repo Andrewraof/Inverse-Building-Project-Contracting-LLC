@@ -149,7 +149,8 @@ class MetaReviewPartner(models.Model):
         # Deliberately NO sudo: existing lead-creator controls remain authoritative.
         lead = self.env['crm.lead'].with_company(self.company_id).create({
             **mapped, 'name': mapped.get('name') or self.name,
-            'contact_name': self.name, 'email_from': self.email, 'phone': self.phone,
+            'contact_name': self.name, 'email_from': self.email,
+            'phone': self.phone or mapped.get('phone'),
             'partner_id': self.id, 'company_id': self.company_id.id, 'type': 'lead',
             # Explicit False prevents the current user/context default from assigning the lead.
             'user_id': salesperson.id or False, 'team_id': form.sales_team_id.id if form else False,
