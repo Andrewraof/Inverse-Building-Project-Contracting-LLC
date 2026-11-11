@@ -107,8 +107,12 @@ class MetaLeadQueue(models.Model):
             vals['contact_name'] = ' '.join(data['full_name'])
         if not vals.get('email_from') and data.get('email'):
             vals['email_from'] = data['email'][0]
-        if not vals.get('phone') and data.get('phone_number'):
-            vals['phone'] = data['phone_number'][0]
+        if not vals.get('phone'):
+            for key in ('phone_number', 'phone'):
+                values = data.get(key) or []
+                if values and isinstance(values[0], str) and values[0].strip():
+                    vals['phone'] = values[0].strip()
+                    break
         return vals, form
 
     def _resolve_source(self, platform):
