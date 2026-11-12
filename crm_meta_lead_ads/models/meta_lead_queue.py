@@ -133,9 +133,23 @@ class MetaLeadQueue(models.Model):
 
     def _display_form_answers(self, payload, form):
         """Render the submitted answers using Meta's own question and option labels."""
-        questions = {
-            q['key']: q for q in (form.questions_json or []) if q.get('key')
-        } if form else {}
+        form_id = str(payload.get('form_id') or '')
+        metadata = form.questions_json if form and form.meta_form_id == form_id else []
+        if not metadata and form_id.isascii() and form_id.isdecimal():
+            # New forms can receive a webhook before the scheduled form sync.
+            # A metadata failure must not interrupt intake or lose raw answers.
+            page = self.page_id
+            try:
+                result = page.account_id._request(
+                    'GET', form_id, token=page.page_access_token,
+                    params={'fields': 'id,questions'},
+                )
+            except UserError:
+                _logger.warning('Meta question labels unavailable for form %s', form_id)
+            else:
+                if str(result.get('id')) == form_id:
+                    metadata = result.get('questions')
+        questions = {q['key']: q for q in metadata or [] if q.get('key')}
         answers = []
         for field_data in payload.get('field_data') or []:
             key = field_data.get('name')
