@@ -96,6 +96,8 @@ class TestMetaContactReview(TransactionCase):
         self.assertTrue(lead)
         self.assertEqual(lead.user_id, self.sales)
         self.assertEqual(lead.meta_campaign_id, 'test-campaign')
+        self.assertIn('Review Person', lead.sudo().meta_form_answers)
+        self.assertEqual(lead.sudo().meta_raw_payload, q.fetched_payload)
         self.assertEqual(p.meta_review_state, 'approved')
         self.assertEqual(p.with_user(self.sales).read(['email'])[0]['email'], 'review@example.test')
         p.action_meta_approve()

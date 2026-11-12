@@ -23,6 +23,8 @@ class CrmLead(models.Model):
     meta_adset_name = fields.Char(copy=False, readonly=True)
     meta_campaign_name = fields.Char(copy=False, readonly=True)
     meta_is_organic = fields.Boolean(copy=False, readonly=True)
+    meta_form_answers = fields.Html(string='Meta Form Answers', readonly=True, copy=False,
+                                    groups='crm_meta_lead_ads.group_meta_lead_user')
     meta_raw_payload = fields.Json(copy=False, readonly=True, groups='base.group_system')
     meta_conversation_id = fields.Many2one('meta.conversation', copy=False, readonly=True, index=True)
     # Normalized dedup match keys, derived from email_from/phone. The

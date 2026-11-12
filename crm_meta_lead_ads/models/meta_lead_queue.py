@@ -131,6 +131,30 @@ class MetaLeadQueue(models.Model):
                     break
         return vals, form
 
+    def _display_form_answers(self, payload, form):
+        """Render the submitted answers using Meta's own question and option labels."""
+        questions = {
+            q['key']: q for q in (form.questions_json or []) if q.get('key')
+        } if form else {}
+        answers = []
+        for field_data in payload.get('field_data') or []:
+            key = field_data.get('name')
+            values = field_data.get('values')
+            if not key or not isinstance(values, list) or not values:
+                continue
+            question = questions.get(key, {})
+            options = {
+                option['key']: option['value']
+                for option in question.get('options') or []
+                if isinstance(option.get('key'), str) and isinstance(option.get('value'), str)
+                and option['value']
+            }
+            labels = [options.get(str(value), str(value)) for value in values]
+            answers.append(Markup('<p><strong>{}</strong>: {}</p>').format(
+                question.get('label') or key, ', '.join(labels),
+            ))
+        return Markup('').join(answers) or False
+
     @api.model
     def _normalize_meta_platform(self, value):
         platform = value.strip().lower() if isinstance(value, str) else ''
@@ -320,6 +344,7 @@ class MetaLeadQueue(models.Model):
             'meta_ad_name': payload.get('ad_name'), 'meta_adset_name': payload.get('adset_name'),
             'meta_campaign_name': payload.get('campaign_name'),
             'meta_is_organic': bool(payload.get('is_organic')), 'meta_raw_payload': payload,
+            'meta_form_answers': self._display_form_answers(payload, form),
             'team_id': form.sales_team_id.id if form and form.sales_team_id else False,
             'user_id': form.user_id.id if form and form.user_id else False,
             'type': form.lead_type if form else 'lead', 'source_id': source.id if source else False,
