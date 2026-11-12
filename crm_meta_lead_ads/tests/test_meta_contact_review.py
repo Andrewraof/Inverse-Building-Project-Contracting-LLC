@@ -1,4 +1,6 @@
 from datetime import timedelta
+from pathlib import Path
+from runpy import run_path
 from unittest.mock import patch
 
 from odoo import Command, fields
@@ -112,6 +114,34 @@ class TestMetaContactReview(TransactionCase):
         p.phone = False
         p.action_meta_approve()
         self.assertEqual(p.meta_review_lead_id.phone, '+971500001234')
+
+    def test_backfill_restores_only_blank_phones_with_matching_meta_ids(self):
+        path = Path(__file__).resolve().parents[1] / 'migrations' / '19.0.4.3.2' / 'post-migration.py'
+        restore = run_path(str(path))['restore_phones']
+        Lead = self.env['crm.lead']
+        phone = '+971500001234'
+
+        def lead(key, source_key, existing=False):
+            return Lead.create({
+                'name': key,
+                'meta_lead_id': key,
+                'phone': existing,
+                'meta_raw_payload': {
+                    'id': source_key,
+                    'field_data': [{'name': 'phone', 'values': [phone]}],
+                },
+            })
+
+        missing = lead('restore-1', 'restore-1')
+        existing = lead('restore-2', 'restore-2', '+971500009999')
+        mismatch = lead('restore-3', 'unrelated')
+        records = missing | existing | mismatch
+        _, ids = restore(self.env, records)
+        self.assertEqual(ids, missing.ids)
+        self.assertEqual(missing.phone, phone)
+        self.assertEqual(existing.phone, '+971500009999')
+        self.assertFalse(mismatch.phone)
+        self.assertEqual(restore(self.env, records)[1], [])
 
     def test_approval_respects_lead_creation_permissions(self):
         q = self._intake()
