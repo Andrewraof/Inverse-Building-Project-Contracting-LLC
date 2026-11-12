@@ -169,7 +169,10 @@ class MetaReviewPartner(models.Model):
         })
         # The raw audit field is system-only. Set only this internal field after
         # CRM creation has succeeded with the reviewer's real permissions.
-        lead.sudo().write({'meta_raw_payload': payload})
+        lead.sudo().write({
+            'meta_raw_payload': payload,
+            'meta_form_answers': queue._display_form_answers(payload, form),
+        })
         queue._ensure_identity(lead, 'created')
         queue.sudo().write({'crm_lead_id': lead.id})
         # The authorized transition occurs after successful lead creation, in

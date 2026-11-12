@@ -71,6 +71,27 @@ class TestMetaDedup(TransactionCase):
         vals.setdefault('name', 'Existing Lead')
         return self.Lead.create(vals)
 
+    def test_new_lead_displays_meta_labels_and_keeps_raw_answers(self):
+        self.form.questions_json = [{
+            'key': 'service', 'label': 'Service',
+            'options': [{'key': 'landscape_design', 'value': 'Landscape, Pool or Garden design'}],
+        }]
+        payload = self._payload('label-test', email='label-test@example.com', phone='+971501234567')
+        payload['field_data'] += [
+            {'name': 'service', 'values': ['landscape_design']},
+            {'name': 'details', 'values': ['<b>Plain answer</b>']},
+        ]
+        queue = self._process(self._enqueue('label-test'), payload)
+        lead = queue.crm_lead_id
+        self.assertEqual(queue.match_result, 'created')
+        self.assertEqual(lead.phone, '+971501234567')
+        self.assertEqual(lead.meta_raw_payload, payload)
+        self.assertIn('Landscape, Pool or Garden design', lead.meta_form_answers)
+        self.assertIn('&lt;b&gt;Plain answer&lt;/b&gt;', lead.meta_form_answers)
+        self.assertNotIn('landscape_design', lead.meta_form_answers)
+        self.assertEqual(self._enqueue('label-test'), queue)
+        self.assertEqual(self.Lead.search_count([('meta_lead_id', '=', 'label-test')]), 1)
+
     # 1. Email normalization: outer spaces and mixed case.
     def test_email_normalization_case_and_spaces(self):
         self.assertEqual(normalize_email('  Person@Example.COM '), 'person@example.com')

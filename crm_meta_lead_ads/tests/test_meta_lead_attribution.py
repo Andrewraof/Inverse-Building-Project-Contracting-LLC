@@ -69,7 +69,9 @@ class TestMetaLeadAttribution(TransactionCase):
     def test_fetch_lead_requests_attribution_names(self):
         queue = self._enqueue('attr-lead-2')
         mock_request = self._process(queue, self._full_payload('attr-lead-2'))
-        requested = mock_request.call_args.kwargs['params']['fields'].split(',')
+        lead_request = mock_request.call_args_list[0]
+        self.assertEqual(lead_request.args, ('GET', 'attr-lead-2'))
+        requested = lead_request.kwargs['params']['fields'].split(',')
         for field_name in ('ad_id', 'ad_name', 'adset_id', 'adset_name', 'campaign_id', 'campaign_name'):
             self.assertIn(field_name, requested)
 
