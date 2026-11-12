@@ -51,7 +51,7 @@ class TestMetaLeadAttribution(TransactionCase):
 
     def test_lead_stores_full_attribution(self):
         queue = self._enqueue('attr-lead-1')
-        self._process(queue, self._full_payload('attr-lead-1'))
+        self._process(queue, {**self._full_payload('attr-lead-1'), 'platform': 'fb'})
         lead = queue.crm_lead_id
         self.assertEqual(queue.state, 'done')
         self.assertEqual(lead.meta_campaign_id, 'camp-1')

@@ -38,12 +38,13 @@ class TestMetaContactReview(TransactionCase):
                                      + [cls.env.ref(g).id for g in groups])],
         })
 
-    def _intake(self, key='intake-1', created=None, phone_key='phone_number'):
+    def _intake(self, key='intake-1', created=None, phone_key='phone_number',
+                platform='facebook', phone_values=None):
         q = self.env['meta.lead.queue'].enqueue_event(self.company, self.page, key)
-        payload = {'id': key, 'platform': 'facebook', 'campaign_id': 'test-campaign',
+        payload = {'id': key, 'platform': platform, 'campaign_id': 'test-campaign',
                    'field_data': [{'name': 'full_name', 'values': ['Review Person']},
                                   {'name': 'email', 'values': ['review@example.test']},
-                                  {'name': phone_key, 'values': ['+971500001234']}]}
+                                  {'name': phone_key, 'values': phone_values or ['+971500001234']}]}
         if created:
             payload['created_time'] = created
         with patch.object(type(q), '_fetch_lead', return_value=payload):
@@ -102,11 +103,16 @@ class TestMetaContactReview(TransactionCase):
         self.assertEqual(self.env['crm.lead'].search_count([('meta_lead_id', '=', q.meta_lead_id)]), 1)
 
     def test_phone_alias_survives_intake_and_approval(self):
-        q = self._intake(phone_key='phone')
+        q = self._intake(phone_key='phone', platform='ig', phone_values=[' ', '+971500001234'])
         p = q.review_partner_id.with_user(self.reviewer)
         self.assertEqual(p.phone, '+971500001234')
         p.action_meta_approve()
         self.assertEqual(p.meta_review_lead_id.phone, '+971500001234')
+        self.assertEqual(p.meta_review_lead_id.meta_platform, 'instagram')
+        self.assertEqual(
+            p.meta_review_lead_id.source_id,
+            self.env.ref('crm_meta_lead_ads.utm_source_instagram'),
+        )
 
     def test_approval_recovers_phone_from_payload_when_contact_is_blank(self):
         q = self._intake(phone_key='phone')

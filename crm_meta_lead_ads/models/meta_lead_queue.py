@@ -110,10 +110,20 @@ class MetaLeadQueue(models.Model):
         if not vals.get('phone'):
             for key in ('phone_number', 'phone'):
                 values = data.get(key) or []
-                if values and isinstance(values[0], str) and values[0].strip():
-                    vals['phone'] = values[0].strip()
+                phone = next(
+                    (value.strip() for value in values if isinstance(value, str) and value.strip()),
+                    None,
+                ) if isinstance(values, list) else None
+                if phone:
+                    vals['phone'] = phone
                     break
         return vals, form
+
+    @api.model
+    def _normalize_meta_platform(self, value):
+        platform = value.strip().lower() if isinstance(value, str) else ''
+        return {'fb': 'facebook', 'facebook': 'facebook',
+                'ig': 'instagram', 'instagram': 'instagram'}.get(platform, 'unknown')
 
     def _resolve_source(self, platform):
         xmlid = 'crm_meta_lead_ads.utm_source_instagram' if platform == 'instagram' else 'crm_meta_lead_ads.utm_source_facebook'
@@ -226,6 +236,9 @@ class MetaLeadQueue(models.Model):
         fill = {}
         for fname in ('contact_name', 'email_from', 'phone'):
             if not lead[fname] and mapped.get(fname):
+                # CRM's phone inverse writes through to the linked contact.
+                if fname == 'phone' and lead.partner_id.phone:
+                    continue
                 fill[fname] = mapped[fname]
         meta_vals = {
             'meta_form_id': form.id if form else False,
@@ -279,9 +292,7 @@ class MetaLeadQueue(models.Model):
         outcome, matched, detail = self._match_existing_lead(email, phone)
         if outcome == 'ambiguous':
             return False, 'ambiguous', detail
-        platform = (payload.get('platform') or 'unknown').lower()
-        if platform not in ('facebook', 'instagram'):
-            platform = 'unknown'
+        platform = self._normalize_meta_platform(payload.get('platform'))
         source = self._resolve_source(platform)
         if matched:
             self._fill_matched_lead(matched, mapped, payload, form, platform, source)
@@ -311,6 +322,8 @@ class MetaLeadQueue(models.Model):
             partner = self.env['res.partner'].sudo().search(domain + ['|', ('company_id','=',False), ('company_id','=',self.company_id.id)], limit=1)
             if partner:
                 vals['partner_id'] = partner.id
+                if partner.phone:
+                    vals.pop('phone', None)
         try:
             with self.env.cr.savepoint():
                 lead = Lead.with_company(self.company_id).create(vals)
