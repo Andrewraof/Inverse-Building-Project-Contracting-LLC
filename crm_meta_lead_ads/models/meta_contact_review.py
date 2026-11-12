@@ -135,6 +135,8 @@ class MetaReviewPartner(models.Model):
         self.env.cr.execute('SELECT id FROM meta_lead_queue WHERE id = %s FOR UPDATE', (queue.id,))
         self.invalidate_recordset(['meta_review_state', 'meta_review_lead_id'])
         if self.meta_review_state == 'approved':
+            if not self.meta_review_lead_id:
+                raise UserError(_('This approved enquiry has no linked CRM lead. Review its existing records before relinking.'))
             return True
         if self.meta_review_state != 'pending':
             raise UserError(_('Only pending enquiries can be approved.'))

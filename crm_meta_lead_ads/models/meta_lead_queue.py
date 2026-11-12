@@ -4,6 +4,7 @@ import logging
 import random
 import time
 from datetime import timedelta
+from markupsafe import Markup
 from psycopg2 import Error as DatabaseError, IntegrityError
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
@@ -94,6 +95,7 @@ class MetaLeadQueue(models.Model):
         form = self.form_id or self.env['meta.form'].search([('meta_form_id', '=', str(payload.get('form_id'))), ('company_id', '=', self.company_id.id)], limit=1)
         data = {x.get('name'): x.get('values', []) for x in payload.get('field_data', []) if x.get('name')}
         vals = {}
+        description_answers = []
         if form:
             for m in form.mapping_ids.filtered('active'):
                 values = data.get(m.meta_field_name, [])
@@ -102,7 +104,17 @@ class MetaLeadQueue(models.Model):
                 field = self.env['crm.lead']._fields.get(m.odoo_field_name)
                 value = (m.join_separator or ', ').join(str(v) for v in values)
                 if field and field.type in ('char', 'text', 'html', 'selection'):
-                    vals[m.odoo_field_name] = value
+                    if m.odoo_field_name == 'description' and field.type == 'html':
+                        description_answers.append((m.meta_field_name, value))
+                    else:
+                        vals[m.odoo_field_name] = value
+        if len(description_answers) == 1:
+            vals['description'] = Markup('{}').format(description_answers[0][1])
+        elif description_answers:
+            vals['description'] = Markup('').join(
+                Markup('<p>{}: {}</p>').format(label, answer)
+                for label, answer in description_answers
+            )
         if not vals.get('contact_name') and data.get('full_name'):
             vals['contact_name'] = ' '.join(data['full_name'])
         if not vals.get('email_from') and data.get('email'):
