@@ -147,7 +147,7 @@ class MetaLeadQueue(models.Model):
             except UserError:
                 _logger.warning('Meta question labels unavailable for form %s', form_id)
             else:
-                if str(result.get('id')) == form_id:
+                if isinstance(result, dict) and str(result.get('id')) == form_id:
                     metadata = result.get('questions')
         questions = {q['key']: q for q in metadata or [] if q.get('key')}
         answers = []
