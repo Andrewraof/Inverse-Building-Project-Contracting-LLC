@@ -1,6 +1,6 @@
 {
     'name': 'Meta Lead Ads CRM Connector',
-    'version': '19.0.4.3.5',
+    'version': '19.0.4.3.6',
     'summary': 'Real-time Meta Facebook/Instagram Lead Ads integration for Odoo CRM',
     'category': 'Sales/CRM',
     'author': 'Andrew Raof',

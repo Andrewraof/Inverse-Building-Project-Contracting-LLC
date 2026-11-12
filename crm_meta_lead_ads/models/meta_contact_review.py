@@ -145,7 +145,8 @@ class MetaReviewPartner(models.Model):
             raise UserError(_('The salesperson must have access to this company.'))
         payload = queue.fetched_payload or {}
         mapped, form = queue._mapping_values(payload)
-        source = queue._resolve_source(payload.get('platform'))
+        platform = queue._normalize_meta_platform(payload.get('platform'))
+        source = queue._resolve_source(platform)
         # Deliberately NO sudo: existing lead-creator controls remain authoritative.
         lead = self.env['crm.lead'].with_company(self.company_id).create({
             **mapped, 'name': mapped.get('name') or self.name,
@@ -156,7 +157,7 @@ class MetaReviewPartner(models.Model):
             'user_id': salesperson.id or False, 'team_id': form.sales_team_id.id if form else False,
             'source_id': source.id if source else False, 'meta_lead_id': queue.meta_lead_id,
             'meta_page_id': queue.page_id.id, 'meta_form_id': form.id if form else False,
-            'meta_platform': payload.get('platform') if payload.get('platform') in ('facebook', 'instagram') else 'unknown',
+            'meta_platform': platform,
             'meta_ad_id': payload.get('ad_id'), 'meta_ad_name': payload.get('ad_name'),
             'meta_adset_id': payload.get('adset_id'), 'meta_adgroup_id': payload.get('adset_id'),
             'meta_adset_name': payload.get('adset_name'),

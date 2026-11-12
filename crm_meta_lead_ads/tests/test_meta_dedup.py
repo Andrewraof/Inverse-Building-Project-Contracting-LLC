@@ -216,6 +216,33 @@ class TestMetaDedup(TransactionCase):
         self.assertEqual(lead.stage_id, stage)
         self.assertTrue(lead.active)
 
+    def test_matched_blank_lead_phone_does_not_replace_contact_phone(self):
+        partner = self.env['res.partner'].create({
+            'name': 'Existing contact', 'phone': '+971501112222',
+            'email': 'phone-guard@example.com',
+        })
+        lead = self._make_lead(partner_id=partner.id, email_from=partner.email)
+        lead.phone = False
+        self.assertFalse(lead.phone)
+        queue = self._process(
+            self._enqueue('dedup-phone-guard'),
+            self._payload('dedup-phone-guard', email=partner.email, phone='+971503334444'),
+        )
+        self.assertEqual(queue.crm_lead_id, lead)
+        self.assertEqual(partner.phone, '+971501112222')
+
+    def test_new_lead_linked_by_email_keeps_existing_contact_phone(self):
+        partner = self.env['res.partner'].create({
+            'name': 'Existing contact', 'phone': '+971501112222',
+            'email': 'new-phone-guard@example.com',
+        })
+        queue = self._process(
+            self._enqueue('dedup-new-phone-guard'),
+            self._payload('dedup-new-phone-guard', email=partner.email, phone='+971503334444'),
+        )
+        self.assertEqual(queue.crm_lead_id.partner_id, partner)
+        self.assertEqual(partner.phone, '+971501112222')
+
     # 12. Only empty fields are filled on a matched lead.
     def test_matched_lead_empty_fields_filled(self):
         lead = self._make_lead(phone='050 333 4444')
