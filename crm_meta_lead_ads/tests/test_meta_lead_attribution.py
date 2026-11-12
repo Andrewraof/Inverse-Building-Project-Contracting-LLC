@@ -116,6 +116,24 @@ class TestMetaLeadAttribution(TransactionCase):
         self.assertEqual(lead.email_from, 'mapped@example.com')
         self.assertEqual(lead.meta_campaign_id, 'camp-1')
 
+    def test_description_keeps_every_mapped_answer(self):
+        Mapping = self.env['meta.form.mapping']
+        for key in ('service', 'start_date'):
+            Mapping.create({
+                'form_id': self.form.id, 'meta_field_name': key,
+                'odoo_field_name': 'description',
+            })
+        q = self._enqueue('attr-multi-answer')
+        vals, _ = q._mapping_values({
+            'form_id': '500',
+            'field_data': [
+                {'name': 'service', 'values': ['Design & fit out']},
+                {'name': 'start_date', 'values': ['In two weeks']},
+            ],
+        })
+        self.assertIn('service: Design &amp; fit out', vals['description'])
+        self.assertIn('start_date: In two weeks', vals['description'])
+
     def test_unique_meta_lead_constraint_unchanged(self):
         self.Lead.create({'name': 'L1', 'meta_lead_id': 'attr-dup-1'})
         with self.assertRaises(IntegrityError):
