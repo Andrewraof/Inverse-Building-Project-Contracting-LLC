@@ -143,6 +143,26 @@ class TestMetaContactReview(TransactionCase):
         self.assertFalse(mismatch.phone)
         self.assertEqual(restore(self.env, records)[1], [])
 
+    def test_source_recheck_requires_matching_id_and_preserves_saved_phone(self):
+        path = Path(__file__).resolve().parents[1] / 'migrations' / '19.0.4.3.3' / 'post-migration.py'
+        restore = run_path(str(path))['restore_from_meta']
+        lead = self.env['crm.lead'].create({
+            'name': 'Source recheck',
+            'meta_lead_id': '123456789012345',
+            'meta_raw_payload': {'id': '123456789012345', 'form_id': '42'},
+        })
+        live = {
+            'id': lead.meta_lead_id,
+            'form_id': '42',
+            'field_data': [{'name': 'phone', 'values': ['+971500001234']}],
+        }
+        self.assertEqual(restore(lead, {**live, 'id': '999'}), 'id_mismatch')
+        self.assertEqual(restore(lead, {**live, 'form_id': '999'}), 'form_mismatch')
+        self.assertFalse(lead.phone)
+        self.assertEqual(restore(lead, live), 'restored')
+        self.assertEqual(restore(lead, live), 'phone_already_present')
+        self.assertEqual(lead.phone, '+971500001234')
+
     def test_approval_respects_lead_creation_permissions(self):
         q = self._intake()
         p = q.review_partner_id.with_user(self.reviewer)
