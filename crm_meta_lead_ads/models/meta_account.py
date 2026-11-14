@@ -25,6 +25,15 @@ class MetaAccount(models.Model):
 
     name = fields.Char(required=True, tracking=True)
     connection_type = fields.Selection([('provider_oauth', 'Provider OAuth'), ('system_user', 'Client-Owned / System User')], default='provider_oauth', required=True, tracking=True)
+    parallel_lead_page_id = fields.Many2one(
+        'meta.page', string='Parallel Lead Ads Page', check_company=True,
+        ondelete='set null', copy=False, groups='base.group_system',
+        domain="[('company_id', '=', company_id)]",
+    )
+    parallel_verify_token = fields.Char(
+        default=lambda self: uuid.uuid4().hex, copy=False, readonly=True,
+        groups='base.group_system',
+    )
     webhook_key = fields.Char(default=lambda self: uuid.uuid4().hex, required=True, readonly=True, copy=False, index=True)
     company_id = fields.Many2one('res.company', required=True, default=lambda self: self.env.company, index=True)
     meta_user_id = fields.Char(readonly=True, index=True)

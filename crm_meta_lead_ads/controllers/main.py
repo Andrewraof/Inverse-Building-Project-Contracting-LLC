@@ -134,6 +134,7 @@ class MetaLeadController(http.Controller):
         Page = request.env['meta.page'].sudo()
         Queue = request.env['meta.lead.queue'].sudo()
         Conversation = request.env['meta.conversation'].sudo()
+        parallel_page = account.parallel_lead_page_id if account else False
         for entry in payload.get('entry', []):
             entry_page_id = str(entry.get('id') or '')
             _logger.info('Meta webhook entry: id=%s, messaging events=%s.',
@@ -147,11 +148,27 @@ class MetaLeadController(http.Controller):
                 if not leadgen_id or not page_meta_id:
                     continue
                 domain = [('meta_page_id', '=', page_meta_id), ('active', '=', True), ('sync_enabled', '=', True)]
+                if parallel_page:
+                    if (account.connection_type != 'system_user'
+                            or parallel_page.company_id != account.company_id
+                            or entry_page_id != parallel_page.meta_page_id
+                            or page_meta_id != parallel_page.meta_page_id
+                            or not parallel_page.active or not parallel_page.sync_enabled):
+                        continue
+                    Queue.enqueue_event(
+                        parallel_page.company_id, parallel_page, leadgen_id,
+                        value.get('form_id'), payload, delivery_account=account,
+                    )
+                    _logger.info('Parallel Meta lead delivery accepted: account=%s, lead=%s.',
+                                 account.id, _safe_log_value(leadgen_id))
+                    continue
                 if account:
                     domain.append(('account_id', '=', account.id))
                 pages = Page.search(domain)
                 for page in pages:
                     Queue.enqueue_event(page.company_id, page, leadgen_id, value.get('form_id'), payload)
+            if parallel_page:
+                continue
             for event in entry.get('messaging', []):
                 self._handle_messaging_event(Page, Conversation, account, entry_page_id, event)
         return request.make_response('EVENT_RECEIVED', status=200)
@@ -200,7 +217,8 @@ class MetaLeadController(http.Controller):
         mode = request.httprequest.args.get('hub.mode')
         token = request.httprequest.args.get('hub.verify_token') or ''
         challenge = request.httprequest.args.get('hub.challenge') or ''
-        expected = self._param('crm_meta_lead_ads.verify_token', '') or ''
+        expected = (account.parallel_verify_token if account.parallel_lead_page_id else
+                    self._param('crm_meta_lead_ads.verify_token', '')) or ''
         if mode == 'subscribe' and expected and hmac.compare_digest(token, expected):
             return request.make_response(challenge, headers=[('Content-Type', 'text/plain')], status=200)
         return request.make_response('Forbidden', status=403)

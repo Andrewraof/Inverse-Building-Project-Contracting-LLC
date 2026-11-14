@@ -36,6 +36,10 @@ class MetaLeadQueue(models.Model):
     page_id = fields.Many2one('meta.page', required=True, ondelete='cascade', index=True)
     form_id = fields.Many2one('meta.form', ondelete='set null', index=True)
     meta_lead_id = fields.Char(required=True, index=True)
+    delivery_account_id = fields.Many2one(
+        'meta.account', readonly=True, copy=False, ondelete='restrict', check_company=True,
+        help='Account that first enqueued this lead through a parallel webhook.',
+    )
     raw_webhook = fields.Json(readonly=True)
     fetched_payload = fields.Json(readonly=True)
     state = fields.Selection([('pending','Pending'),('processing','Processing'),('done','Done'),('duplicate','Duplicate'),('ambiguous','Ambiguous'),('retry','Retry'),('failed','Failed')], default='pending', required=True, index=True)
@@ -65,8 +69,10 @@ class MetaLeadQueue(models.Model):
     _unique_queued_lead = models.Constraint('UNIQUE(meta_lead_id, company_id)', 'This Meta lead is already queued for this company.')
 
     @api.model
-    def enqueue_event(self, company, page, leadgen_id, form_id=None, payload=None):
-        vals = {'company_id': company.id, 'page_id': page.id, 'meta_lead_id': str(leadgen_id), 'raw_webhook': payload or {}}
+    def enqueue_event(self, company, page, leadgen_id, form_id=None, payload=None,
+                      delivery_account=None):
+        vals = {'company_id': company.id, 'page_id': page.id, 'meta_lead_id': str(leadgen_id),
+                'raw_webhook': payload or {}, 'delivery_account_id': delivery_account.id if delivery_account else False}
         if form_id:
             form = self.env['meta.form'].sudo().search([('meta_form_id', '=', str(form_id)), ('company_id', '=', company.id)], limit=1)
             vals['form_id'] = form.id if form else False
@@ -88,6 +94,13 @@ class MetaLeadQueue(models.Model):
         # page_id/adgroup_id were removed from the leadgen node; valid fields
         # on current Graph versions are adset_id/campaign_id instead.
         fields_list = 'id,created_time,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,form_id,field_data,platform,is_organic'
+        account = self.delivery_account_id
+        if account:
+            if (account.connection_type != 'system_user' or account.parallel_lead_page_id != self.page_id
+                    or not account.user_access_token):
+                raise UserError(_('The parallel Meta lead connection is no longer configured.'))
+            return account._request('GET', self.meta_lead_id, token=account.user_access_token,
+                                    params={'fields': fields_list})
         return self.page_id.account_id._request('GET', self.meta_lead_id, token=self.page_id.page_access_token, params={'fields': fields_list})
 
     def _mapping_values(self, payload):
