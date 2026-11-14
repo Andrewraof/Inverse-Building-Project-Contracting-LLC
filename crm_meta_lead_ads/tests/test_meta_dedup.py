@@ -71,6 +71,29 @@ class TestMetaDedup(TransactionCase):
         vals.setdefault('name', 'Existing Lead')
         return self.Lead.create(vals)
 
+    def test_parallel_delivery_uses_its_token_and_deduplicates_with_primary(self):
+        parallel = self.env['meta.account'].create({
+            'name': 'Parallel test', 'app_id': 'parallel-app', 'app_secret': 'test-secret',
+            'company_id': self.env.company.id, 'connection_type': 'system_user',
+            'parallel_lead_page_id': self.page.id, 'user_access_token': 'parallel-test-token',
+        })
+        lead_id = 'parallel-delivery'
+        queue = self.Queue.enqueue_event(
+            self.env.company, self.page, lead_id, '500', delivery_account=parallel,
+        )
+        self.assertEqual(queue, self._enqueue(lead_id))
+        self.assertEqual(queue.delivery_account_id, parallel)
+        payload = self._payload(lead_id, email='parallel@example.com', phone='+12025550168')
+        payload['field_data'].append({'name': 'service', 'values': ['design']})
+        with patch.object(type(parallel), '_request', return_value=payload) as graph:
+            queue.process_one()
+        self.assertEqual(graph.call_args.kwargs['token'], 'parallel-test-token')
+        self.assertEqual(queue.state, 'done')
+        self.assertEqual(queue.crm_lead_id.meta_raw_payload, payload)
+        self.assertEqual(queue.crm_lead_id.phone, '+12025550168')
+        self.assertEqual(self.Lead.search_count([('meta_lead_id', '=', lead_id)]), 1)
+        self.assertEqual(self.page.account_id, self.account)
+
     def test_new_lead_displays_meta_labels_and_keeps_raw_answers(self):
         self.form.questions_json = [{
             'key': 'service', 'label': 'Service',
