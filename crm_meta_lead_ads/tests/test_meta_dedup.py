@@ -87,7 +87,8 @@ class TestMetaDedup(TransactionCase):
         payload['field_data'].append({'name': 'service', 'values': ['design']})
         with patch.object(type(parallel), '_request', return_value=payload) as graph:
             queue.process_one()
-        self.assertEqual(graph.call_args.kwargs['token'], 'parallel-test-token')
+        self.assertEqual(graph.call_args_list[0].args, ('GET', lead_id))
+        self.assertEqual(graph.call_args_list[0].kwargs['token'], 'parallel-test-token')
         self.assertEqual(queue.state, 'done')
         self.assertEqual(queue.crm_lead_id.meta_raw_payload, payload)
         self.assertEqual(queue.crm_lead_id.phone, '+12025550168')
