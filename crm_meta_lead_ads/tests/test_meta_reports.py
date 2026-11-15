@@ -3,6 +3,7 @@ import os
 
 from odoo import fields
 from odoo.tests.common import TransactionCase
+from odoo.tools.safe_eval import safe_eval
 
 from psycopg2 import IntegrityError
 
@@ -29,6 +30,7 @@ class TestMetaReports(TransactionCase):
             'view_crm_lead_meta_pivot': ('crm.lead', 'pivot'),
             'view_crm_lead_meta_graph': ('crm.lead', 'graph'),
             'view_meta_conversation_pivot': ('meta.conversation', 'pivot'),
+            'view_meta_first_response_pivot': ('meta.conversation', 'pivot'),
             'view_meta_conversation_graph': ('meta.conversation', 'graph'),
             'view_crm_lead_meta_funnel_pivot': ('crm.lead', 'pivot'),
         }
@@ -43,6 +45,7 @@ class TestMetaReports(TransactionCase):
             'action_meta_queue_report': 'meta.lead.queue',
             'action_meta_leads_report': 'crm.lead',
             'action_meta_conversation_report': 'meta.conversation',
+            'action_meta_first_response_report': 'meta.conversation',
             'action_meta_funnel_report': 'crm.lead',
         }
         for xml_id, model in expected.items():
@@ -65,7 +68,31 @@ class TestMetaReports(TransactionCase):
         view = self.env.ref('crm_meta_lead_ads.view_meta_conversation_pivot')
         arch = view.arch_db
         self.assertIn('name="linked_lead_count" type="measure"', arch)
-        self.assertIn('first_response_seconds', arch)
+        self.assertIn('name="first_response_seconds" type="measure" invisible="1"', arch)
+        graph = self.env.ref('crm_meta_lead_ads.view_meta_conversation_graph')
+        self.assertIn('name="first_response_seconds" type="measure" invisible="1"', graph.arch_db)
+        response_view = self.env.ref('crm_meta_lead_ads.view_meta_first_response_pivot')
+        self.assertIn('name="first_response_seconds" type="measure"', response_view.arch_db)
+
+    def test_first_response_report_averages_only_replied_conversations(self):
+        Conv = self.env['meta.conversation']
+        now = fields.Datetime.now()
+        for psid, seconds, replied in [
+            ('reply-fast', 60, True),
+            ('reply-slow', 180, True),
+            ('reply-pending', 0, False),
+        ]:
+            Conv.create({
+                'company_id': self.env.company.id,
+                'page_id': self.page.id,
+                'psid': psid,
+                'first_response_seconds': seconds,
+                'first_response_at': now if replied else False,
+            })
+        action = self.env.ref('crm_meta_lead_ads.action_meta_first_response_report')
+        domain = safe_eval(action.domain) + [('page_id', '=', self.page.id)]
+        groups = Conv.read_group(domain, ['first_response_seconds'], [])
+        self.assertEqual(groups[0]['first_response_seconds'], 120.0)
 
     def test_conversation_linked_lead_count_aggregates(self):
         Conv = self.env['meta.conversation']
