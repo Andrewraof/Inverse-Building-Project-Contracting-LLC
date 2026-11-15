@@ -71,6 +71,34 @@ class TestMetaDedup(TransactionCase):
         vals.setdefault('name', 'Existing Lead')
         return self.Lead.create(vals)
 
+    def test_live_test_routes_only_matching_synthetic_lead(self):
+        email = 'isolated-qa@example.com'
+        parallel = self.env['meta.account'].create({
+            'name': 'Parallel QA', 'app_id': 'qa-app', 'app_secret': 'qa-secret',
+            'company_id': self.env.company.id, 'connection_type': 'system_user',
+            'parallel_lead_page_id': self.page.id, 'parallel_test_form_id': self.form.id,
+            'parallel_test_email': email, 'user_access_token': 'parallel-qa-token',
+        })
+        ordinary = self._enqueue('ordinary-live')
+        ordinary_payload = self._payload('ordinary-live', email='ordinary@example.test')
+        with patch.object(type(parallel), '_request', return_value=ordinary_payload) as graph:
+            self.assertEqual(ordinary._fetch_lead(), ordinary_payload)
+        self.assertEqual(graph.call_args.kwargs['token'], self.page.page_access_token)
+        self.assertFalse(ordinary.delivery_account_id)
+        self.assertEqual(parallel.parallel_test_email, email)
+
+        queue = self._enqueue('isolated-live')
+        payload = self._payload('isolated-live', email=email, phone='+12025550175')
+        with patch.object(type(parallel), '_request', return_value=payload) as graph:
+            queue.process_one()
+        self.assertEqual(graph.call_args_list[0].kwargs['token'], 'parallel-qa-token')
+        self.assertEqual(queue.delivery_account_id, parallel)
+        self.assertEqual(queue.state, 'done')
+        self.assertEqual(queue.crm_lead_id.meta_raw_payload, payload)
+        self.assertFalse(parallel.parallel_test_email)
+        self.assertEqual(self._enqueue('isolated-live'), queue)
+        self.assertEqual(self.Lead.search_count([('meta_lead_id', '=', 'isolated-live')]), 1)
+
     def test_parallel_delivery_uses_its_token_and_deduplicates_with_primary(self):
         parallel = self.env['meta.account'].create({
             'name': 'Parallel test', 'app_id': 'parallel-app', 'app_secret': 'test-secret',

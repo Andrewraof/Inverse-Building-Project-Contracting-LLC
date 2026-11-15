@@ -101,6 +101,37 @@ class MetaLeadQueue(models.Model):
                 raise UserError(_('The parallel Meta lead connection is no longer configured.'))
             return account._request('GET', self.meta_lead_id, token=account.user_access_token,
                                     params={'fields': fields_list})
+        if self.form_id and self.form_id.page_id == self.page_id:
+            test_accounts = self.env['meta.account'].sudo().search([
+                ('company_id', '=', self.company_id.id),
+                ('connection_type', '=', 'system_user'),
+                ('parallel_lead_page_id', '=', self.page_id.id),
+                ('parallel_test_form_id', '=', self.form_id.id),
+                ('parallel_test_email', '!=', False),
+                ('user_access_token', '!=', False),
+            ], limit=2)
+            if len(test_accounts) == 1:
+                test_email = normalize_email(test_accounts.parallel_test_email)
+                if test_email.endswith('@example.com'):
+                    try:
+                        with self.env.cr.savepoint():
+                            result = test_accounts._request(
+                                'GET', self.meta_lead_id, token=test_accounts.user_access_token,
+                                params={'fields': fields_list},
+                            )
+                    except UserError:
+                        _logger.warning('Parallel test lookup unavailable for queue %s', self.id)
+                    else:
+                        if (str(result.get('id')) == self.meta_lead_id
+                                and str(result.get('form_id')) == self.form_id.meta_form_id
+                                and any(
+                                    answer.get('name') == 'email'
+                                    and any(normalize_email(email) == test_email for email in answer.get('values', []))
+                                    for answer in result.get('field_data', [])
+                                )):
+                            self.delivery_account_id = test_accounts
+                            test_accounts.parallel_test_email = False
+                            return result
         return self.page_id.account_id._request('GET', self.meta_lead_id, token=self.page_id.page_access_token, params={'fields': fields_list})
 
     def _mapping_values(self, payload):
