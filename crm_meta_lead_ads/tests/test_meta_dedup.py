@@ -96,6 +96,18 @@ class TestMetaDedup(TransactionCase):
         self.assertEqual(queue.state, 'done')
         self.assertEqual(queue.crm_lead_id.meta_raw_payload, payload)
         self.assertFalse(parallel.parallel_test_email)
+        parallel.parallel_primary_lead_fetch = True
+        preferred_queue = self._enqueue('preferred-live')
+        preferred_payload = self._payload('preferred-live', email='preferred@example.test')
+        with patch.object(type(parallel), '_request', return_value=preferred_payload) as graph:
+            self.assertEqual(preferred_queue._fetch_lead(), preferred_payload)
+        self.assertEqual(graph.call_args.kwargs['token'], 'parallel-qa-token')
+        self.assertEqual(preferred_queue.delivery_account_id, parallel)
+        fallback_queue = self._enqueue('fallback-live')
+        with patch.object(type(parallel), '_request', side_effect=[UserError('Graph denied'), ordinary_payload]) as graph:
+            self.assertEqual(fallback_queue._fetch_lead(), ordinary_payload)
+        self.assertEqual(graph.call_args.kwargs['token'], self.page.page_access_token)
+        self.assertFalse(fallback_queue.delivery_account_id)
         self.assertEqual(self._enqueue('isolated-live'), queue)
         self.assertEqual(self.Lead.search_count([('meta_lead_id', '=', 'isolated-live')]), 1)
 
