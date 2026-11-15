@@ -30,6 +30,10 @@ class MetaAccount(models.Model):
         ondelete='set null', copy=False, groups='base.group_system',
         domain="[('company_id', '=', company_id)]",
     )
+    parallel_primary_lead_fetch = fields.Boolean(
+        string='Prefer This Account for Lead Ads', copy=False, groups='base.group_system',
+        help='Use this account first for Lead Ads on the parallel page. The existing account remains the fallback.',
+    )
     parallel_test_form_id = fields.Many2one(
         'meta.form', string='Live Test Form', check_company=True, copy=False,
         groups='base.group_system', domain="[('page_id', '=', parallel_lead_page_id)]",

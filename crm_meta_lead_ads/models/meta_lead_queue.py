@@ -101,6 +101,24 @@ class MetaLeadQueue(models.Model):
                 raise UserError(_('The parallel Meta lead connection is no longer configured.'))
             return account._request('GET', self.meta_lead_id, token=account.user_access_token,
                                     params={'fields': fields_list})
+        preferred = self.env['meta.account'].sudo().search([
+            ('company_id', '=', self.company_id.id),
+            ('connection_type', '=', 'system_user'),
+            ('parallel_lead_page_id', '=', self.page_id.id),
+            ('parallel_primary_lead_fetch', '=', True),
+            ('user_access_token', '!=', False),
+        ], limit=2)
+        if len(preferred) == 1:
+            try:
+                with self.env.cr.savepoint():
+                    result = preferred._request('GET', self.meta_lead_id, token=preferred.user_access_token,
+                                                params={'fields': fields_list})
+            except UserError:
+                _logger.warning('Preferred Meta lead fetch failed for queue %s; using the existing account', self.id)
+            else:
+                if str(result.get('id')) == self.meta_lead_id and result.get('field_data'):
+                    self.delivery_account_id = preferred
+                    return result
         if self.form_id and self.form_id.page_id == self.page_id:
             test_accounts = self.env['meta.account'].sudo().search([
                 ('company_id', '=', self.company_id.id),
