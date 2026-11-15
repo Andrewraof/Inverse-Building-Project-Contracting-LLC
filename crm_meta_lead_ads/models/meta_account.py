@@ -30,6 +30,14 @@ class MetaAccount(models.Model):
         ondelete='set null', copy=False, groups='base.group_system',
         domain="[('company_id', '=', company_id)]",
     )
+    parallel_test_form_id = fields.Many2one(
+        'meta.form', string='Live Test Form', check_company=True, copy=False,
+        groups='base.group_system', domain="[('page_id', '=', parallel_lead_page_id)]",
+    )
+    parallel_test_email = fields.Char(
+        string='Live Test Email', copy=False, groups='base.group_system',
+        help='Route only the synthetic lead with this exact example.com email to this account.',
+    )
     parallel_verify_token = fields.Char(
         default=lambda self: uuid.uuid4().hex, copy=False, readonly=True,
         groups='base.group_system',
